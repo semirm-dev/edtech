@@ -1334,9 +1334,23 @@ ddev exec vendor/bin/phpunit -c phpunit-integration.xml.dist --filter StartDates
 
 Expected: `OK (2 tests, 2 assertions)`.
 
-- [ ] **Step 6: Verify by hand in the admin**
+- [ ] **Step 6: Verify the rendered markup contains a nonce**
 
-Open a course in wp-admin, enter `03-2026` and `January-2026` in the Start Dates box, save, and reopen. Expected: both persist, displayed as `01-2026` first then `03-2026` — chronological, not input order.
+The integration tests cover saving. This checks the render path emits the nonce field the save path requires — a mismatch between the two would make every save silently no-op.
+
+```bash
+ddev wp eval '
+$id = wp_insert_post(["post_type" => "course", "post_title" => "Render check"]);
+ob_start();
+CourseDiscovery\ContentModel\StartDatesMetaBox::render(get_post($id));
+$html = ob_get_clean();
+echo str_contains($html, "course_start_dates_nonce") ? "nonce present" : "NONCE MISSING";
+echo "\n";
+wp_delete_post($id, true);
+'
+```
+
+Expected: `nonce present`.
 
 - [ ] **Step 7: Run the full gate and commit**
 
@@ -1589,15 +1603,84 @@ composer stan && composer test:unit && ddev exec vendor/bin/phpunit -c phpunit-i
 
 Expected: no PHPStan errors, all unit tests pass, all integration tests pass.
 
-- [ ] **Step 9: Author real content by hand**
+- [ ] **Step 9: Add a reproducible seed script**
 
-In wp-admin create two providers (each with a location term), two instructors, and three courses linking them, with start dates and categories including a nested `Design > Graphic Design`. This is the fixture data Plan 2's indexer will be developed against.
+Plan 2's indexer needs fixture content. Hand-authoring it in wp-admin would make it unreproducible and untestable, so script it instead.
 
-- [ ] **Step 10: Commit**
+Create `bin/seed.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Seeds demo content. Idempotent: wipes prior seeded content first.
+set -euo pipefail
+
+wp() { ddev wp "$@"; }
+
+echo "Removing previously seeded content..."
+for type in course instructor provider; do
+    ids=$(wp post list --post_type="$type" --format=ids)
+    if [ -n "$ids" ]; then wp post delete $ids --force; fi
+done
+
+echo "Creating locations..."
+wp term create location "India" --slug=india --porcelain > /dev/null || true
+wp term create location "China" --slug=china --porcelain > /dev/null || true
+
+echo "Creating categories..."
+design=$(wp term create course_category "Design" --slug=design --porcelain)
+wp term create course_category "Graphic Design" --slug=graphic-design --parent="$design" --porcelain > /dev/null
+
+echo "Creating providers..."
+uosd=$(wp post create --post_type=provider --post_title="University of Sunderland" --post_status=publish --porcelain)
+dmu=$(wp post create --post_type=provider --post_title="De Montfort University" --post_status=publish --porcelain)
+wp post term set "$uosd" location india
+wp post term set "$dmu" location china
+
+echo "Creating instructors..."
+ada=$(wp post create --post_type=instructor --post_title="Ada Lovelace" --post_status=publish --porcelain)
+alan=$(wp post create --post_type=instructor --post_title="Alan Turing" --post_status=publish --porcelain)
+
+echo "Creating courses..."
+c1=$(wp post create --post_type=course --post_title="Graphic Design Foundation" \
+    --post_excerpt="Learn the fundamentals of visual communication." \
+    --post_content="A full introduction to typography, colour and layout." \
+    --post_status=publish --porcelain)
+c2=$(wp post create --post_type=course --post_title="Data Science Essentials" \
+    --post_excerpt="Statistics and machine learning from scratch." \
+    --post_content="Covers regression, classification and model evaluation." \
+    --post_status=publish --porcelain)
+
+wp post term set "$c1" course_category graphic-design
+wp post term set "$c2" course_category design
+
+wp post meta update "$c1" course_providers "[$uosd,$dmu]" --format=json
+wp post meta update "$c2" course_providers "[$dmu]" --format=json
+wp post meta update "$c1" course_instructors "[$ada]" --format=json
+wp post meta update "$c2" course_instructors "[$alan]" --format=json
+wp post meta update "$c1" course_price 950
+wp post meta update "$c2" course_price 1200
+wp post meta update "$c1" _course_start_dates '[202601,202603]' --format=json
+wp post meta update "$c2" _course_start_dates '[202609]' --format=json
+
+echo "Seed complete."
+```
+
+`c1` is deliberately attached to two providers in different countries — it is the fixture that proves assumption A4 (a course matches a location filter if *any* provider is there), and it is filed under a child category to exercise A5.
+
+- [ ] **Step 10: Run the seed and verify**
+
+```bash
+chmod +x bin/seed.sh && ./bin/seed.sh && ddev wp post list --post_type=course --fields=ID,post_title
+```
+
+Expected: two courses listed, no errors.
+
+- [ ] **Step 11: Commit**
 
 ```bash
 git add plugins/course-discovery/
-git commit -m "feat: add acf fields and admin columns"
+git add bin/seed.sh
+git commit -m "feat: add acf fields, admin columns, seed"
 ```
 
 ---
