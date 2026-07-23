@@ -23,8 +23,9 @@ wp-config.php
 # Example themes
 /wp-content/themes/twenty*/
 
-# Example plugin
+# Bundled plugins (installed, not authored here)
 /wp-content/plugins/hello.php
+/wp-content/plugins/akismet/
 
 # Uploads
 /wp-content/uploads/
