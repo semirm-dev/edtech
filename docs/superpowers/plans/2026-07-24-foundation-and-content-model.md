@@ -4,9 +4,11 @@
 
 **Goal:** A reproducible Docker environment with a verified test/static-analysis gate and the complete content model, so courses, instructors and providers can be authored in wp-admin.
 
-**Architecture:** The repository becomes a *plugin project* rather than a WordPress install. The official `wordpress` Docker image supplies core; our two plugins are bind-mounted into it. Composer manages autoloading and dev tooling only. All content registration is code, never database state — so a fresh clone reproduces the model exactly.
+**Architecture:** The repository becomes a *plugin project* rather than a WordPress install. WordPress core lives in an untracked `wp/` directory; the two plugins live at the top level and are bind-mounted into `wp/wp-content/plugins/`. Composer manages autoloading and dev tooling only. All content registration is code, never database state — so a fresh clone reproduces the model exactly.
 
-**Tech Stack:** PHP 8.4, WordPress (official image), MariaDB 11, Composer, PHPUnit 11, PHPStan level 9, ACF (free).
+**Two environments, deliberately:** DDEV for local development (already installed, familiar, gives `ddev wp` and Xdebug), and a plain `docker-compose.yml` that the VPS runs from day 2. Because the public deployment uses compose continuously, it cannot silently rot — a broken compose file means a visibly broken public site, not a day-7 surprise.
+
+**Tech Stack:** PHP 8.4, WordPress, MariaDB, DDEV v1.25, Composer, PHPUnit 11, PHPStan level 9, ACF (free).
 
 ## Global Constraints
 
@@ -34,10 +36,14 @@ This is plan 1 of 4. Each produces working, testable software.
 ## File Structure
 
 ```
-docker-compose.yml                    WordPress + MariaDB services
+wp/                                   WordPress core — untracked, DDEV docroot
+.ddev/config.yaml                     docroot: wp
+.ddev/docker-compose.plugins.yaml     mounts plugins into wp/wp-content/plugins
+docker-compose.yml                    deploy artifact: WordPress + MariaDB
 .env.example                          documented environment variables
 composer.json                         autoloading + dev tooling + scripts
-phpunit.xml.dist                      two suites: unit (no WP), integration (WP)
+phpunit.xml.dist                      unit suite (no WordPress)
+phpunit-integration.xml.dist          integration suite (WordPress loaded)
 phpstan.neon.dist                     level 9 config
 plugins/course-discovery/
   course-discovery.php                plugin header + bootstrap
@@ -63,30 +69,67 @@ plugins/course-discovery/
 
 ---
 
-### Task 1: Docker environment
+### Task 1: Restructure and dual environment
 
 **Files:**
-- Create: `docker-compose.yml`
-- Create: `.env.example`
-- Modify: `.gitignore`
+- Create: `wp/` (moved core), `.ddev/docker-compose.plugins.yaml`, `docker-compose.yml`, `.env.example`
+- Modify: `.ddev/config.yaml`, `.gitignore`
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: a running WordPress at `http://localhost:8080`, database service named `db`, plugins directory bind-mounted from `./plugins`
+- Produces: DDEV serving from `wp/` at `https://edtech.ddev.site` with plugins mounted at `wp/wp-content/plugins/`; a compose stack usable for deployment
 
-- [ ] **Step 1: Move existing WordPress core out of the way**
+- [ ] **Step 1: Move WordPress core into `wp/`**
 
-The repo currently holds a WordPress install at root. Core files are gitignored, so this is invisible to git. Preserve rather than delete:
+Core is gitignored, so git sees nothing. This is a move, fully reversible.
 
 ```bash
-mkdir -p .archive
-mv wp-admin wp-includes wp-content wp-*.php index.php license.txt readme.html xmlrpc.php .archive/ 2>/dev/null
+mkdir -p wp
+mv wp-admin wp-includes wp-content wp-*.php index.php license.txt readme.html xmlrpc.php wp/ 2>/dev/null
 ls
 ```
 
-Expected: only `.archive`, `.claude`, `.ddev`, `.git`, `.gitignore`, `CLAUDE.md`, `docs`.
+Expected top level: `.claude`, `.ddev`, `.git`, `.gitignore`, `CLAUDE.md`, `docs`, `wp`.
 
-- [ ] **Step 2: Create `docker-compose.yml`**
+- [ ] **Step 2: Point DDEV at the new docroot**
+
+```bash
+ddev config --docroot=wp
+grep '^docroot' .ddev/config.yaml
+```
+
+Expected: `docroot: wp`.
+
+- [ ] **Step 3: Create the plugin directories**
+
+```bash
+mkdir -p plugins/course-discovery plugins/course-discovery-example-extension
+touch plugins/course-discovery/.gitkeep plugins/course-discovery-example-extension/.gitkeep
+```
+
+- [ ] **Step 4: Mount the plugins into DDEV's web container**
+
+Create `.ddev/docker-compose.plugins.yaml`. Paths are relative to `.ddev/`. A bind mount is used rather than a symlink deliberately: WordPress builds asset URLs from the real filesystem path, and a symlink pointing outside the docroot produces broken URLs in Plan 3 when scripts are enqueued.
+
+```yaml
+services:
+  web:
+    volumes:
+      - ../plugins/course-discovery:/var/www/html/wp/wp-content/plugins/course-discovery
+      - ../plugins/course-discovery-example-extension:/var/www/html/wp/wp-content/plugins/course-discovery-example-extension
+```
+
+- [ ] **Step 5: Restart and verify DDEV serves the new layout**
+
+```bash
+ddev restart && curl -sI https://edtech.ddev.site/ | head -1 && ddev exec ls wp-content/plugins
+```
+
+Expected: `HTTP/2 200`, and the plugin listing includes `course-discovery` and `course-discovery-example-extension`.
+
+Note: `ddev restart` regenerates `wp/wp-config.php` and rotates the salts, logging you out of wp-admin. Expected, not a fault.
+
+- [ ] **Step 6: Create `docker-compose.yml` (the deployment artifact)**
 
 ```yaml
 services:
@@ -127,10 +170,11 @@ volumes:
   wp_core:
 ```
 
-- [ ] **Step 3: Create `.env.example`**
+- [ ] **Step 7: Create `.env.example`**
 
 ```bash
 # Copy to .env and adjust. Compose reads .env automatically.
+# Used by docker-compose.yml only; DDEV manages its own settings.
 HTTP_PORT=8080
 DB_NAME=wordpress
 DB_USER=wordpress
@@ -138,19 +182,12 @@ DB_PASSWORD=wordpress
 DB_ROOT_PASSWORD=root
 ```
 
-- [ ] **Step 4: Create the mounted directories so the bind mounts resolve**
+- [ ] **Step 8: Replace `.gitignore`**
 
-```bash
-mkdir -p plugins/course-discovery plugins/course-discovery-example-extension
-touch plugins/course-discovery/.gitkeep plugins/course-discovery-example-extension/.gitkeep
-```
-
-- [ ] **Step 5: Replace `.gitignore`**
-
-The current file ignores a WordPress install we no longer have at root.
+The current file ignores a WordPress install that no longer sits at root.
 
 ```gitignore
-/.archive/
+/wp/
 /.env
 /vendor/
 /node_modules/
@@ -158,23 +195,34 @@ The current file ignores a WordPress install we no longer have at root.
 *.log
 ```
 
-- [ ] **Step 6: Boot and verify**
+- [ ] **Step 9: Verify the compose stack boots independently**
+
+DDEV must be stopped first — both bind port 80/443 via their routers, and the compose stack needs its own ports.
 
 ```bash
-cp .env.example .env && docker compose up -d && sleep 20 && curl -sI http://localhost:8080/ | head -1
+ddev stop
+cp .env.example .env && docker compose up -d && sleep 25 && curl -sI http://localhost:8080/ | head -1
 ```
 
-Expected: `HTTP/1.1 302 Found` (redirect to the installer) or `HTTP/1.1 200 OK`. If the image tag `wordpress:php8.4-apache` is unavailable, run `docker run --rm wordpress:php8.4-apache php -v` to confirm; fall back to `wordpress:php8.3-apache` and record the change here.
+Expected: `HTTP/1.1 302 Found` (redirect to the installer) or `HTTP/1.1 200 OK`.
 
-- [ ] **Step 7: Complete the WordPress install**
+If the tag `wordpress:php8.4-apache` does not exist, run `docker pull wordpress:php8.4-apache` to confirm, and fall back to `wordpress:php8.3-apache`, recording the change here.
 
-Visit `http://localhost:8080/` and complete the five-field installer. Site title `Course Discovery`, note the admin credentials — they go in the README later.
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 10: Return to DDEV for development**
 
 ```bash
-git add docker-compose.yml .env.example .gitignore plugins/
-git commit -m "chore: add docker compose environment"
+docker compose down && ddev start && curl -sI https://edtech.ddev.site/ | head -1
+```
+
+Expected: `HTTP/2 200`.
+
+From here every task uses DDEV. The compose stack is exercised again in Plan 4 when the VPS is provisioned.
+
+- [ ] **Step 11: Commit**
+
+```bash
+git add docker-compose.yml .env.example .gitignore .ddev/ plugins/
+git commit -m "chore: restructure to plugin project layout"
 ```
 
 ---
@@ -357,9 +405,28 @@ if (! defined('ABSPATH')) {
     exit;
 }
 
-$courseDiscoveryAutoload = __DIR__ . '/../../vendor/autoload.php';
+/**
+ * Locate Composer's autoloader by walking upward.
+ *
+ * The plugin sits at a different depth under DDEV (docroot `wp/`) than under
+ * the deployment compose stack (docroot `/var/www/html`), so a fixed relative
+ * path would work in one environment and silently fail in the other.
+ */
+$courseDiscoveryAutoload = null;
+$courseDiscoverySearchDir = __DIR__;
 
-if (! is_readable($courseDiscoveryAutoload)) {
+for ($i = 0; $i < 6; $i++) {
+    $candidate = $courseDiscoverySearchDir . '/vendor/autoload.php';
+
+    if (is_readable($candidate)) {
+        $courseDiscoveryAutoload = $candidate;
+        break;
+    }
+
+    $courseDiscoverySearchDir = dirname($courseDiscoverySearchDir);
+}
+
+if ($courseDiscoveryAutoload === null) {
     add_action('admin_notices', static function (): void {
         echo '<div class="notice notice-error"><p>Course Discovery: run <code>composer install</code>.</p></div>';
     });
@@ -372,7 +439,7 @@ require_once $courseDiscoveryAutoload;
 CourseDiscovery\Plugin::boot();
 ```
 
-The autoloader path resolves out of the plugins directory to the project root, which the compose bind mount makes available. Verify in Step 11.
+The upward search is not defensive padding — it is required. Under DDEV the plugin is four levels below the project root (`wp/wp-content/plugins/course-discovery`); under the deployment stack it is three (`wp-content/plugins/course-discovery`). A hardcoded `../../vendor/autoload.php` would work locally and break in production, which is the worst possible place to discover it.
 
 - [ ] **Step 10: Create `phpstan.neon.dist`**
 
@@ -396,20 +463,21 @@ composer stan && composer test:unit
 
 Expected: `[OK] No errors` then `OK (1 test, 1 assertion)`.
 
-The autoloader is outside the bind mount, so mount the project root too. Add to the `wordpress` service volumes in `docker-compose.yml`:
+DDEV mounts the whole project at `/var/www/html`, so `vendor/` is already reachable from the plugin. Confirm the upward search finds it:
+
+```bash
+ddev exec php -r 'require "/var/www/html/wp/wp-content/plugins/course-discovery/course-discovery.php";' 2>&1 | head -3
+```
+
+Expected: a fatal error about `ABSPATH` being undefined — which proves the file was found and executed up to its WordPress guard. A "No such file" error means the mount from Task 1 Step 4 is wrong.
+
+Then activate **Course Discovery** in wp-admin → Plugins and confirm no error notice appears.
+
+For the deployment stack, `vendor/` sits outside the plugin bind mount, so add to the `wordpress` service volumes in `docker-compose.yml`:
 
 ```yaml
       - ./vendor:/var/www/html/vendor
 ```
-
-Then restart and activate:
-
-```bash
-docker compose up -d --force-recreate wordpress
-docker compose exec wordpress bash -c "cd /var/www/html && php -r 'echo file_exists(\"vendor/autoload.php\") ? \"autoload OK\" : \"MISSING\";'"
-```
-
-Expected: `autoload OK`. Then activate "Course Discovery" in wp-admin → Plugins and confirm no error notice appears.
 
 - [ ] **Step 12: Commit**
 
@@ -511,18 +579,18 @@ final class HarnessTest extends WP_UnitTestCase
 
 - [ ] **Step 5: Run it inside the container and watch it fail**
 
-The test suite needs a database. Run it in the WordPress container against a scratch database:
+The suite needs its own database — it truncates tables between tests and must never touch the development database.
 
 ```bash
-docker compose exec db mariadb -uroot -proot -e "CREATE DATABASE IF NOT EXISTS wordpress_test;"
-docker compose exec -e WP_TESTS_DB_NAME=wordpress_test -e WP_TESTS_DB_USER=root -e WP_TESTS_DB_PASSWORD=root -e WP_TESTS_DB_HOST=db wordpress bash -c "cd /var/www/html && vendor/bin/phpunit -c phpunit-integration.xml.dist"
+ddev mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS wordpress_test;"
+ddev exec vendor/bin/phpunit -c phpunit-integration.xml.dist
 ```
 
-Expected: FAIL — the test config file is not visible in the container yet.
+Expected: FAIL — `wp-tests-config.php` does not exist yet.
 
-- [ ] **Step 6: Mount the project root and add the test config**
+- [ ] **Step 6: Add the test config**
 
-`wp-phpunit` reads database settings from a `wp-tests-config.php`. Create it at project root:
+`wp-phpunit` reads database settings from a `wp-tests-config.php`. Create it at project root. DDEV's database host is `db` and the root credentials are `root`/`root`:
 
 ```php
 <?php
@@ -542,28 +610,20 @@ define('WP_TESTS_DOMAIN', 'localhost');
 define('WP_TESTS_EMAIL', 'admin@example.com');
 define('WP_TESTS_TITLE', 'Course Discovery Tests');
 define('WP_PHP_BINARY', 'php');
-define('ABSPATH', '/var/www/html/');
+define('ABSPATH', '/var/www/html/wp/');
 ```
 
-Add to the `wordpress` service volumes so the whole project is reachable in-container:
-
-```yaml
-      - ./phpunit-integration.xml.dist:/var/www/html/phpunit-integration.xml.dist
-      - ./wp-tests-config.php:/var/www/html/wp-tests-config.php
-      - ./plugins/course-discovery/tests:/var/www/html/tests
-```
-
-Then `docker compose up -d --force-recreate wordpress`.
+`ABSPATH` points at `wp/` because that is the docroot after Task 1. Getting this wrong produces a bootstrap that cannot find WordPress.
 
 - [ ] **Step 7: Run it again and watch it pass**
 
 ```bash
-docker compose exec wordpress bash -c "cd /var/www/html && WP_TESTS_CONFIG_FILE_PATH=/var/www/html/wp-tests-config.php vendor/bin/phpunit -c phpunit-integration.xml.dist"
+ddev exec WP_TESTS_CONFIG_FILE_PATH=/var/www/html/wp-tests-config.php vendor/bin/phpunit -c phpunit-integration.xml.dist
 ```
 
 Expected: `OK (2 tests, 2 assertions)`.
 
-If bootstrap fails to locate WordPress, set `WP_TESTS_DIR` explicitly and re-run. Record the working command — it becomes the README's testing instruction.
+If the bootstrap cannot locate WordPress, set `WP_TESTS_DIR` explicitly and re-run. Record whichever command works — it becomes the README's testing instruction, and Plan 4 will need it verbatim.
 
 - [ ] **Step 8: Commit**
 
@@ -637,7 +697,7 @@ The excerpt assertion matters: the spec maps "short description" onto the excerp
 - [ ] **Step 2: Run it and watch it fail**
 
 ```bash
-docker compose exec wordpress bash -c "cd /var/www/html && vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostTypesTest"
+ddev exec vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostTypesTest
 ```
 
 Expected: FAIL — `Class "CourseDiscovery\ContentModel\PostTypes" not found`.
@@ -722,7 +782,7 @@ In `plugins/course-discovery/src/Plugin.php`, replace the body of `boot()`:
 - [ ] **Step 5: Run it and watch it pass**
 
 ```bash
-docker compose exec wordpress bash -c "cd /var/www/html && vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostTypesTest"
+ddev exec vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostTypesTest
 ```
 
 Expected: `OK (3 tests, 9 assertions)`.
@@ -811,7 +871,7 @@ The second test encodes assumption A1 — location belongs to providers, and cou
 - [ ] **Step 2: Run it and watch it fail**
 
 ```bash
-docker compose exec wordpress bash -c "cd /var/www/html && vendor/bin/phpunit -c phpunit-integration.xml.dist --filter TaxonomiesTest"
+ddev exec vendor/bin/phpunit -c phpunit-integration.xml.dist --filter TaxonomiesTest
 ```
 
 Expected: FAIL — `Class "CourseDiscovery\ContentModel\Taxonomies" not found`.
@@ -876,7 +936,7 @@ Post types register first because taxonomies reference them.
 - [ ] **Step 5: Run it and watch it pass**
 
 ```bash
-docker compose exec wordpress bash -c "cd /var/www/html && vendor/bin/phpunit -c phpunit-integration.xml.dist --filter TaxonomiesTest"
+ddev exec vendor/bin/phpunit -c phpunit-integration.xml.dist --filter TaxonomiesTest
 ```
 
 Expected: `OK (3 tests, 7 assertions)`.
@@ -1159,7 +1219,7 @@ The nonce test is deliberate: an unauthenticated write path into post meta is a 
 - [ ] **Step 2: Run it and watch it fail**
 
 ```bash
-docker compose exec wordpress bash -c "cd /var/www/html && vendor/bin/phpunit -c phpunit-integration.xml.dist --filter StartDatesMetaBoxTest"
+ddev exec vendor/bin/phpunit -c phpunit-integration.xml.dist --filter StartDatesMetaBoxTest
 ```
 
 Expected: FAIL — `Class "CourseDiscovery\ContentModel\StartDatesMetaBox" not found`.
@@ -1269,7 +1329,7 @@ In `Plugin::boot()`, add:
 - [ ] **Step 5: Run it and watch it pass**
 
 ```bash
-docker compose exec wordpress bash -c "cd /var/www/html && vendor/bin/phpunit -c phpunit-integration.xml.dist --filter StartDatesMetaBoxTest"
+ddev exec vendor/bin/phpunit -c phpunit-integration.xml.dist --filter StartDatesMetaBoxTest
 ```
 
 Expected: `OK (2 tests, 2 assertions)`.
@@ -1303,10 +1363,13 @@ git commit -m "feat: add start dates meta box"
 - [ ] **Step 1: Install ACF**
 
 ```bash
-docker compose exec wordpress bash -c "cd /var/www/html && curl -sL https://downloads.wordpress.org/plugin/advanced-custom-fields.latest-stable.zip -o /tmp/acf.zip && unzip -oq /tmp/acf.zip -d wp-content/plugins/"
+ddev wp plugin install advanced-custom-fields --activate
+ddev wp plugin list | grep advanced-custom-fields
 ```
 
-Activate "Advanced Custom Fields" in wp-admin → Plugins. Field *groups* are defined in code below, so nothing lives only in the database.
+Expected: `advanced-custom-fields   active`.
+
+ACF core lives under `wp/`, which is gitignored — so record the exact command in the README's setup instructions, since a fresh clone will need it. Field *groups* are defined in code below, so nothing the reviewer needs lives only in a database.
 
 - [ ] **Step 2: Implement the field group**
 
@@ -1430,7 +1493,7 @@ final class AdminColumnsTest extends WP_UnitTestCase
 - [ ] **Step 4: Run it and watch it fail**
 
 ```bash
-docker compose exec wordpress bash -c "cd /var/www/html && vendor/bin/phpunit -c phpunit-integration.xml.dist --filter AdminColumnsTest"
+ddev exec vendor/bin/phpunit -c phpunit-integration.xml.dist --filter AdminColumnsTest
 ```
 
 Expected: FAIL — `Class "CourseDiscovery\ContentModel\AdminColumns" not found`.
@@ -1513,7 +1576,7 @@ In `Plugin::boot()`, add:
 - [ ] **Step 7: Run it and watch it pass**
 
 ```bash
-docker compose exec wordpress bash -c "cd /var/www/html && vendor/bin/phpunit -c phpunit-integration.xml.dist --filter AdminColumnsTest"
+ddev exec vendor/bin/phpunit -c phpunit-integration.xml.dist --filter AdminColumnsTest
 ```
 
 Expected: `OK (3 tests, 4 assertions)`.
@@ -1521,7 +1584,7 @@ Expected: `OK (3 tests, 4 assertions)`.
 - [ ] **Step 8: Verify the complete gate**
 
 ```bash
-composer stan && composer test:unit && docker compose exec wordpress bash -c "cd /var/www/html && vendor/bin/phpunit -c phpunit-integration.xml.dist"
+composer stan && composer test:unit && ddev exec vendor/bin/phpunit -c phpunit-integration.xml.dist
 ```
 
 Expected: no PHPStan errors, all unit tests pass, all integration tests pass.
@@ -1541,10 +1604,11 @@ git commit -m "feat: add acf fields and admin columns"
 
 ## Definition of Done
 
-- [ ] `docker compose up -d` yields a working WordPress at `http://localhost:8080`
+- [ ] `ddev start` serves the site from `wp/` with both plugins mounted and visible
+- [ ] `docker compose up -d` independently yields a working WordPress at `http://localhost:8080`
 - [ ] `composer stan` reports zero errors at level 9
 - [ ] `composer test:unit` passes
-- [ ] The integration suite passes inside the container
+- [ ] `ddev exec vendor/bin/phpunit -c phpunit-integration.xml.dist` passes
 - [ ] Course, instructor and provider appear in wp-admin with working editors
 - [ ] Categories nest; locations attach to providers only
 - [ ] Start dates persist, normalise, and display chronologically
