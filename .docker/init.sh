@@ -26,8 +26,16 @@ fi
 CD_SITE_URL="${CD_SITE_URL:-http://localhost:8080}"
 
 CD_ADMIN_USER="${CD_ADMIN_USER:-admin}"
-CD_ADMIN_PASSWORD="${CD_ADMIN_PASSWORD:-admin}"
 CD_ADMIN_EMAIL="${CD_ADMIN_EMAIL:-admin@example.com}"
+
+# Record whether a password was actually supplied BEFORE defaulting, so the
+# guard below can tell "the variable never arrived" apart from "it arrived
+# holding a placeholder". Applying the default first collapses both into
+# the string "admin" and loses the distinction -- which is exactly the
+# ambiguity that made a real deployment failure take several rounds to
+# diagnose.
+CD_ADMIN_PASSWORD_SUPPLIED="${CD_ADMIN_PASSWORD:+yes}"
+CD_ADMIN_PASSWORD="${CD_ADMIN_PASSWORD:-admin}"
 
 # --- Secrets guard ---------------------------------------------------------
 # Refuse to install a non-local site while the admin password is still a
@@ -83,23 +91,48 @@ is_localhost_url() {
 if ! is_localhost_url "${CD_SITE_URL}"; then
     case "${CD_ADMIN_PASSWORD}" in
         admin|password|changeme|'')
+            # Say WHICH failure this is. "Still a default" is ambiguous
+            # between an unset variable and a literally-default one, and
+            # those have different fixes -- one means the variable never
+            # reached the container (wrong service, unapplied change), the
+            # other means it arrived carrying a placeholder value. Without
+            # this distinction the only way to tell them apart is to go
+            # read the value in a dashboard.
+            #
+            # Naming the offending value is safe here precisely because
+            # every branch that reaches it is a publicly-known placeholder,
+            # never a real secret. The passing path below prints a length
+            # and nothing else, for the same reason in reverse.
+            if [ -z "${CD_ADMIN_PASSWORD_SUPPLIED}" ]; then
+                diagnosis="CD_ADMIN_PASSWORD is empty or not set at all.
+  The variable is either missing from this service, set on a different
+  service, or the change has not been applied/redeployed yet."
+            else
+                diagnosis="CD_ADMIN_PASSWORD is set to the placeholder value '${CD_ADMIN_PASSWORD}'."
+            fi
+
             cat >&2 <<EOF
-ERROR: refusing to initialise -- default admin password on a public deploy.
+ERROR: refusing to initialise -- unusable admin password on a public deploy.
 
   Site URL: ${CD_SITE_URL}
+  ${diagnosis}
 
-This does not look like localhost, so the site is publicly reachable, but
-CD_ADMIN_PASSWORD is still a known default. Installing a public site with
-default credentials is a real security risk.
+This does not look like localhost, so the site is publicly reachable.
+Installing a public site with default credentials is a real security risk.
 
-Fix: set CD_ADMIN_PASSWORD to a strong, unique value in the service's
-environment variables and redeploy. Generate one with:
+Fix: set CD_ADMIN_PASSWORD to a strong, unique value on the service that
+runs WordPress (not on the database service), apply the change, and
+redeploy. Generate one with:
 
   openssl rand -base64 24
 EOF
             exit 1
             ;;
     esac
+
+    # Confirms the variable actually arrived, without putting a secret in a
+    # log that Railway retains and replays.
+    echo "==> Admin password supplied (${#CD_ADMIN_PASSWORD} characters)."
 fi
 # --- End secrets guard -----------------------------------------------------
 
