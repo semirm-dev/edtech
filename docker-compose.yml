@@ -16,24 +16,37 @@
 
 services:
   db:
-    # MariaDB locally, mirroring DDEV (README §3). Production runs MySQL 8
-    # on the platform's managed database; the schema is portable across
-    # both -- InnoDB with a FULLTEXT index and MATCH ... AGAINST in boolean
-    # mode, no vendor-specific syntax -- so this difference is deliberate
-    # and worth exercising rather than hiding.
-    image: mariadb:11.4
+    # MySQL, NOT the MariaDB that DDEV runs (README §3) -- deliberately.
+    #
+    # Development is MariaDB 10.11 and every managed database this is likely
+    # to be deployed onto is MySQL, so the two engines both need covering.
+    # DDEV plus `ddev composer test` exercises MariaDB; this harness is the
+    # only place MySQL gets exercised, so it runs MySQL and the coverage
+    # does not overlap.
+    #
+    # This is not hypothetical tidiness. M003AddTitleColumn originally used
+    # `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, a MariaDB extension MySQL
+    # rejects outright as a syntax error. With a MariaDB harness it passed
+    # every local check and then took the site down on first boot against a
+    # managed MySQL, during plugin activation. A harness that shares the
+    # development engine cannot catch that class of bug by construction.
+    image: mysql:9.4
     restart: unless-stopped
     environment:
-      MARIADB_DATABASE: ${DB_NAME:-wordpress}
-      MARIADB_USER: ${DB_USER:-wordpress}
-      MARIADB_PASSWORD: ${DB_PASSWORD:-wordpress}
-      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${DB_NAME:-wordpress}
+      MYSQL_USER: ${DB_USER:-wordpress}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-wordpress}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      # MySQL's first-run initialisation is slower than MariaDB's and it
+      # briefly accepts connections on a temporary server before the real
+      # one is up, hence start_period rather than retries alone.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
       interval: 5s
-      retries: 20
+      retries: 30
+      start_period: 40s
 
   wordpress:
     build: .

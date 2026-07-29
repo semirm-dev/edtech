@@ -18,17 +18,30 @@ use wpdb;
  * reindex; existing rows get the column's default ('') until their course
  * is next reindexed.
  *
- * `IF NOT EXISTS` on both statements (a MariaDB extension, confirmed
- * supported on the project's MariaDB 10.11) rather than a bare `ADD COLUMN`
- * / `ADD KEY`, matching M001's own `CREATE TABLE IF NOT EXISTS` idiom:
- * MigrationRunner's version bookkeeping lives in wp_options, and DDL causes
- * an implicit COMMIT in MariaDB (see UsesIndexTables' docblock) that can
- * commit this migration's schema change while the *next* statement --
+ * Both statements must tolerate being reapplied to an already-migrated
+ * table. MigrationRunner's version bookkeeping lives in wp_options, and DDL
+ * causes an implicit COMMIT (see UsesIndexTables' docblock) that can commit
+ * this migration's schema change while the *next* statement --
  * update_option() recording that version 3 applied -- still lands inside a
  * test-harness transaction that later gets rolled back. That leaves the
  * schema changed but the recorded version stale, so MigrationRunner will
- * attempt to reapply this migration; without IF NOT EXISTS that reapply
- * would fail with "Duplicate column name".
+ * attempt to reapply this migration; a bare ADD COLUMN would then fail with
+ * "Duplicate column name".
+ *
+ * That reapply-safety is achieved by querying information_schema first,
+ * NOT with `ADD COLUMN IF NOT EXISTS`. `IF NOT EXISTS` on ALTER TABLE is a
+ * MariaDB extension: MySQL does not support it on ADD COLUMN or ADD INDEX
+ * in any version, and fails with a syntax error rather than degrading. That
+ * cost a real deployment -- the plugin is developed against MariaDB 10.11
+ * but a managed database is as likely to be MySQL, and this migration is
+ * reached during plugin activation, so the failure took the whole site down
+ * on first boot rather than surfacing as a degraded feature.
+ *
+ * information_schema.COLUMNS and information_schema.STATISTICS are standard
+ * and behave identically on both engines, so this is portable in a way the
+ * previous form was not. M001's `CREATE TABLE IF NOT EXISTS` needs no such
+ * treatment -- `IF NOT EXISTS` on CREATE TABLE is standard and supported by
+ * both.
  */
 final class M003AddTitleColumn implements Migration
 {
@@ -46,7 +59,41 @@ final class M003AddTitleColumn implements Migration
     {
         $indexTable = $schema->metaLookupTable();
 
-        $execute("ALTER TABLE {$indexTable} ADD COLUMN IF NOT EXISTS title VARCHAR(255) NOT NULL DEFAULT ''");
-        $execute("ALTER TABLE {$indexTable} ADD INDEX IF NOT EXISTS title (title)");
+        if (!$this->columnExists($db, $indexTable, 'title')) {
+            $execute("ALTER TABLE {$indexTable} ADD COLUMN title VARCHAR(255) NOT NULL DEFAULT ''");
+        }
+
+        if (!$this->indexExists($db, $indexTable, 'title')) {
+            $execute("ALTER TABLE {$indexTable} ADD INDEX title (title)");
+        }
+    }
+
+    /**
+     * DATABASE() rather than a configured schema name so this follows
+     * whichever database the connection is actually using, matching how
+     * Schema derives table names from $wpdb->prefix instead of assuming.
+     */
+    private function columnExists(wpdb $db, string $table, string $column): bool
+    {
+        $sql = $db->prepare(
+            'SELECT COLUMN_NAME FROM information_schema.COLUMNS'
+                . ' WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s',
+            $table,
+            $column
+        );
+
+        return $db->get_var($sql) !== null;
+    }
+
+    private function indexExists(wpdb $db, string $table, string $index): bool
+    {
+        $sql = $db->prepare(
+            'SELECT INDEX_NAME FROM information_schema.STATISTICS'
+                . ' WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND INDEX_NAME = %s',
+            $table,
+            $index
+        );
+
+        return $db->get_var($sql) !== null;
     }
 }

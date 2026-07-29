@@ -243,6 +243,29 @@ and provider before recreating its fixtures. `CD_SEED=auto` (the default)
 seeds only when the site has no courses; `force` reseeds and discards
 hand-authored content; `skip` never seeds.
 
+### Database engine
+
+Development is MariaDB 10.11 (§3); managed hosts overwhelmingly offer
+MySQL. The plugin supports both, and the two are covered by different
+gates on purpose — `ddev composer test` runs against MariaDB, and the
+compose harness below runs against MySQL 9.4, so neither engine is left
+untested.
+
+Two places needed real work to be portable, both worth knowing about
+before adding schema code:
+
+- **`ALTER TABLE … ADD COLUMN IF NOT EXISTS` is MariaDB-only.** MySQL
+  rejects it as a syntax error in every version. `M003AddTitleColumn`
+  checks `information_schema` instead. (`CREATE TABLE IF NOT EXISTS`, used
+  by `M001`, is standard and fine.)
+- **`SELECT @@in_transaction` is MariaDB-only.** `CourseIndexer` uses it to
+  decide between a real transaction and a `SAVEPOINT`; on MySQL it raises
+  error 1193, and wpdb prints that failure into WP-CLI's stdout, which
+  corrupts `--porcelain` output. There is no unprivileged portable
+  substitute — `information_schema.INNODB_TRX` needs the `PROCESS`
+  privilege that managed databases withhold — so the engine is detected
+  from the connection's version string.
+
 ### Verify the image locally before deploying
 
 `docker-compose.yml` is a harness for the production image, not a

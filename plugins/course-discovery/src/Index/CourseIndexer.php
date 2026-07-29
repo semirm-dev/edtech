@@ -35,6 +35,13 @@ final class CourseIndexer
      */
     private static array $indexing = [];
 
+    /**
+     * Cached engine check for inAmbientTransaction(); null until first
+     * resolved. Derived from the connection's own version string, so it
+     * cannot change for the life of this instance.
+     */
+    private ?bool $isMariaDb = null;
+
     public function __construct(
         private readonly wpdb $db,
         private readonly Schema $schema,
@@ -427,22 +434,55 @@ final class CourseIndexer
      * instead whenever a transaction is already open, leaving the caller's
      * transaction boundary untouched.
      *
-     * `SELECT @@in_transaction` is MariaDB-specific (this project's target
-     * DB per CLAUDE.md); on plain MySQL it errors instead of returning 0/1,
-     * which would silently fall through to a nested transaction and quietly
-     * commit the caller's ambient one. Do not port to MySQL without
-     * replacing this check.
-     *
      * @return bool whether a SAVEPOINT was used (i.e. a transaction was
      *              already open) rather than a real transaction
      */
     private function startWrite(): bool
     {
-        $nested = (int) $this->db->get_var('SELECT @@in_transaction') === 1;
+        $nested = $this->inAmbientTransaction();
 
         $this->db->query($nested ? ('SAVEPOINT ' . self::SAVEPOINT) : 'START TRANSACTION');
 
         return $nested;
+    }
+
+    /**
+     * Whether a transaction is already open on this connection.
+     *
+     * `SELECT @@in_transaction` answers this on MariaDB and nowhere else --
+     * MySQL has no such system variable and raises "Unknown system variable"
+     * (error 1193). That is not a harmless miss: wpdb prints the failure,
+     * which on WP-CLI corrupts the stdout of any command being read for its
+     * value. `wp post create --porcelain` returned an error page instead of
+     * a post ID and the seed died mid-run with "Could not find the post with
+     * ID 0", leaving a half-populated site.
+     *
+     * There is no portable substitute usable here.
+     * information_schema.INNODB_TRX exposes the same fact on both engines,
+     * but MySQL gates it behind the PROCESS privilege, which the application
+     * user of a managed database does not get (verified against MySQL 9.4:
+     * "Access denied; you need (at least one of) the PROCESS privilege(s)").
+     * So the engine is detected instead, from the version string wpdb
+     * already holds -- no query, and no server-side error to suppress or
+     * accidentally print.
+     *
+     * On MySQL this reports false, which is correct for every context this
+     * code actually runs in: WordPress opens no ambient transaction around a
+     * request, so a real START TRANSACTION is what atomicity requires. The
+     * nesting case exists solely for wp-phpunit's per-test transaction
+     * wrapper, and the suite runs on MariaDB (README §3). Running the suite
+     * against MySQL would silently lose that isolation -- hence this note
+     * rather than a quiet assumption.
+     */
+    private function inAmbientTransaction(): bool
+    {
+        $this->isMariaDb ??= stripos($this->db->db_server_info(), 'mariadb') !== false;
+
+        if (!$this->isMariaDb) {
+            return false;
+        }
+
+        return (int) $this->db->get_var('SELECT @@in_transaction') === 1;
     }
 
     private function commitWrite(bool $nested): void

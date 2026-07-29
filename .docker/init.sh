@@ -188,22 +188,37 @@ wp rewrite flush
 #   force            always reseed, discarding hand-authored content
 #   skip             never seed
 CD_SEED="${CD_SEED:-auto}"
-course_count="$(wp post list --post_type=cd_course --format=count)"
+
+# Completion marker, not a course count.
+#
+# "Has courses" is not the same question as "has been seeded". A seed that
+# dies partway leaves some courses behind, and a count-based check then
+# reads that wreckage as success and skips forever -- which is exactly what
+# happened on the first MySQL deploy: the seed aborted after one course, the
+# container restarted, and every subsequent boot reported "1 courses already
+# present; skipping seed" against a site that was permanently broken.
+#
+# The marker is written only after seed.sh exits 0, so an interrupted seed
+# leaves it absent and the next boot retries.
+seed_now() {
+    CD_SEED_WP_NATIVE=1 bash /docker-init/seed.sh
+    wp option update cd_demo_seed_completed 1 > /dev/null
+}
 
 case "${CD_SEED}" in
     force)
         echo "==> CD_SEED=force: reseeding (discards existing courses)..."
-        CD_SEED_WP_NATIVE=1 bash /docker-init/seed.sh
+        seed_now
         ;;
     skip)
         echo "==> CD_SEED=skip: leaving existing content alone."
         ;;
     auto)
-        if [ "${course_count}" = "0" ]; then
-            echo "==> No courses found; seeding demo content..."
-            CD_SEED_WP_NATIVE=1 bash /docker-init/seed.sh
+        if wp option get cd_demo_seed_completed > /dev/null 2>&1; then
+            echo "==> Demo content already seeded; skipping seed."
         else
-            echo "==> ${course_count} courses already present; skipping seed."
+            echo "==> No completed seed recorded; seeding demo content..."
+            seed_now
         fi
         ;;
     *)
