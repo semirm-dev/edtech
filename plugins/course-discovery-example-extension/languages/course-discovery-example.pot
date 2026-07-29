@@ -1,0 +1,33 @@
+# Copyright (C) 2026 
+# This file is distributed under the same license as the Course Discovery Example Extension plugin.
+msgid ""
+msgstr ""
+"Project-Id-Version: Course Discovery Example Extension 0.1.0\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/course-discovery-example-extension\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-07-25T11:05:20+02:00\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"X-Domain: course-discovery-example\n"
+
+#. Plugin Name of the plugin
+#: course-discovery-example-extension.php
+msgid "Course Discovery Example Extension"
+msgstr ""
+
+#. Description of the plugin
+#: course-discovery-example-extension.php
+msgid "Adds an Instructor filter to Course Discovery entirely through its public hooks -- proof that a new filter needs zero changes to the core plugin."
+msgstr ""
+
+#: course-discovery-example-extension.php:56
+msgid "Course Discovery Example Extension requires the Course Discovery plugin to be active."
+msgstr ""
+
+#: src/InstructorFilter.php:69
+msgid "Instructor"
+msgstr ""

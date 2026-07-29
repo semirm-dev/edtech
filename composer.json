@@ -1,0 +1,44 @@
+{
+    "name": "semirm-dev/course-discovery",
+    "description": "Course Discovery system for WordPress",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.3"
+    },
+    "require-dev": {
+        "php-stubs/wordpress-tests-stubs": "^7.0",
+        "php-stubs/wp-cli-stubs": "^2.12",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^11.5",
+        "szepeviktor/phpstan-wordpress": "^2.0",
+        "wp-phpunit/wp-phpunit": "^7.0",
+        "yoast/phpunit-polyfills": "^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "CourseDiscovery\\": "plugins/course-discovery/src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "CourseDiscovery\\Tests\\": "plugins/course-discovery/tests/"
+        }
+    },
+    "scripts": {
+        "test:unit": "phpunit --testsuite unit",
+        "test:integration": [
+            "php plugins/course-discovery/tests/ensure-test-database.php",
+            "phpunit -c phpunit-integration.xml.dist"
+        ],
+        "test:arch": "phpunit --testsuite architecture",
+        "test": ["@test:unit", "@test:integration", "@test:arch"],
+        "stan": "phpstan analyse --memory-limit=1G"
+    },
+    "config": {
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": false
+        },
+        "sort-packages": true
+    }
+}

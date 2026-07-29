@@ -1,0 +1,11 @@
+includes:
+    - vendor/szepeviktor/phpstan-wordpress/extension.neon
+
+parameters:
+    level: 9
+    paths:
+        - plugins/course-discovery
+        - plugins/course-discovery-example-extension
+    scanFiles:
+        - vendor/php-stubs/wordpress-tests-stubs/wordpress-tests-stubs.php
+        - vendor/php-stubs/wp-cli-stubs/wp-cli-stubs.php

@@ -1,0 +1,5 @@
+services:
+  web:
+    volumes:
+      - ../plugins/course-discovery:/var/www/html/wp/wp-content/plugins/course-discovery
+      - ../plugins/course-discovery-example-extension:/var/www/html/wp/wp-content/plugins/course-discovery-example-extension

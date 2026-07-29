@@ -1,0 +1,7 @@
+# Shell scripts run inside Linux containers (DDEV), where
+# CRLF line endings break the interpreter (`/usr/bin/env bash^M`). Force LF so
+# a Windows editor re-saving these can't reintroduce the problem in the repo.
+*.sh text eol=lf
+
+# PHP is executed in Linux too; keep it LF for consistency.
+*.php text eol=lf

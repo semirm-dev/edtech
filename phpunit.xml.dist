@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="plugins/course-discovery/tests/bootstrap-unit.php"
+         colors="true"
+         failOnWarning="true"
+         failOnRisky="true">
+    <testsuites>
+        <testsuite name="unit">
+            <directory>plugins/course-discovery/tests/Unit</directory>
+        </testsuite>
+        <testsuite name="architecture">
+            <directory>plugins/course-discovery/tests/Architecture</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>plugins/course-discovery/src</directory>
+        </include>
+    </source>
+</phpunit>

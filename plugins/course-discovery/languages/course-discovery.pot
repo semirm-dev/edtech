@@ -1,0 +1,185 @@
+# Copyright (C) 2026 
+# This file is distributed under the same license as the Course Discovery plugin.
+msgid ""
+msgstr ""
+"Project-Id-Version: Course Discovery 0.1.0\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/course-discovery\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-07-25T11:05:19+02:00\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"X-Domain: course-discovery\n"
+
+#. Plugin Name of the plugin
+#: course-discovery.php
+msgid "Course Discovery"
+msgstr ""
+
+#. Description of the plugin
+#: course-discovery.php
+msgid "Extensible course discovery system."
+msgstr ""
+
+#: src/ContentModel/AcfFields.php:43
+msgid "Course Details"
+msgstr ""
+
+#: src/ContentModel/AcfFields.php:52
+msgid "Price"
+msgstr ""
+
+#: src/ContentModel/AcfFields.php:56
+msgid "Whole currency units."
+msgstr ""
+
+#: src/ContentModel/AcfFields.php:60
+#: src/ContentModel/PostTypes.php:34
+msgid "Instructors"
+msgstr ""
+
+#: src/ContentModel/AcfFields.php:68
+#: src/ContentModel/AdminColumns.php:32
+#: src/ContentModel/AdminColumns.php:40
+#: src/ContentModel/PostTypes.php:46
+msgid "Providers"
+msgstr ""
+
+#: src/ContentModel/AdminColumns.php:33
+#: src/ContentModel/AdminColumns.php:44
+msgid "Next Start"
+msgstr ""
+
+#: src/ContentModel/PostTypes.php:20
+msgid "Course"
+msgstr ""
+
+#: src/ContentModel/PostTypes.php:21
+msgid "Courses"
+msgstr ""
+
+#: src/ContentModel/PostTypes.php:33
+msgid "Instructor"
+msgstr ""
+
+#: src/ContentModel/PostTypes.php:45
+#: src/Filter/ProviderFilter.php:37
+msgid "Provider"
+msgstr ""
+
+#. translators: %s: post type singular name, already translated.
+#: src/ContentModel/PostTypes.php:67
+#, php-format
+msgid "Add New %s"
+msgstr ""
+
+#. translators: %s: post type singular name, already translated.
+#: src/ContentModel/PostTypes.php:69
+#, php-format
+msgid "Edit %s"
+msgstr ""
+
+#. translators: %s: post type plural name, already translated.
+#: src/ContentModel/PostTypes.php:71
+#, php-format
+msgid "Search %s"
+msgstr ""
+
+#. translators: %s: post type plural name, already translated, lowercased.
+#: src/ContentModel/PostTypes.php:73
+#, php-format
+msgid "No %s found"
+msgstr ""
+
+#: src/ContentModel/StartDatesMetaBox.php:26
+msgid "Start Dates"
+msgstr ""
+
+#: src/ContentModel/StartDatesMetaBox.php:43
+msgid "One per line, as <code>MM-YYYY</code> or <code>Month-YYYY</code>."
+msgstr ""
+
+#: src/ContentModel/Taxonomies.php:19
+msgid "Course Categories"
+msgstr ""
+
+#: src/ContentModel/Taxonomies.php:20
+msgid "Course Category"
+msgstr ""
+
+#: src/ContentModel/Taxonomies.php:31
+msgid "Locations"
+msgstr ""
+
+#: src/ContentModel/Taxonomies.php:32
+#: src/Filter/LocationFilter.php:45
+msgid "Location"
+msgstr ""
+
+#: src/Filter/CategoryFilter.php:37
+msgid "Category"
+msgstr ""
+
+#: src/Filter/KeywordFilter.php:40
+#: src/Frontend/FormRenderer.php:45
+msgid "Search"
+msgstr ""
+
+#: src/Filter/KeywordFilter.php:50
+msgid "Matches course name, short and long description."
+msgstr ""
+
+#: src/Filter/StartDateFilter.php:50
+msgid "Start date"
+msgstr ""
+
+#: src/Frontend/Assets.php:76
+msgid "Any"
+msgstr ""
+
+#: src/Frontend/FormRenderer.php:47
+msgid "Clear filters"
+msgstr ""
+
+#: src/Frontend/ResultsRenderer.php:48
+msgid "No courses match your search. Try adjusting your filters."
+msgstr ""
+
+#. translators: %s: number of matching courses, already localised.
+#: src/Frontend/ResultsRenderer.php:66
+#, php-format
+msgid "%s course found"
+msgid_plural "%s courses found"
+msgstr[0] ""
+msgstr[1] ""
+
+#: src/Frontend/ResultsRenderer.php:105
+msgid "Start date to be confirmed"
+msgstr ""
+
+#. translators: %s: localised month and year, e.g. "March 2026".
+#: src/Frontend/ResultsRenderer.php:110
+#, php-format
+msgid "Starts %s"
+msgstr ""
+
+#: src/Frontend/ResultsRenderer.php:125
+msgid "Pagination"
+msgstr ""
+
+#. translators: %d: page number.
+#: src/Frontend/ResultsRenderer.php:151
+#, php-format
+msgid "Page %d"
+msgstr ""
+
+#. translators: %d: number of courses reindexed.
+#: src/Index/ReindexCommand.php:38
+#, php-format
+msgid "Reindexed %d course."
+msgid_plural "Reindexed %d courses."
+msgstr[0] ""
+msgstr[1] ""
