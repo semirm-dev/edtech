@@ -57,14 +57,31 @@ RUN set -eux; \
 # equivalent of a one-shot sidecar sharing a volume -- a service is a
 # long-running process -- so the CLI is baked into this image instead and
 # .docker/init.sh runs from the entrypoint before Apache starts.
-RUN set -eux; \
-    curl -fsSL https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar \
-        -o /usr/local/bin/wp; \
-    chmod +x /usr/local/bin/wp; \
-    wp --allow-root --version
+#
+# Taken from the official wordpress:cli image rather than curl'd from
+# raw.githubusercontent.com. Two reasons, in order of importance:
+#
+#  1. It removes GitHub from the build's critical path. A build host with
+#     degraded GitHub connectivity would otherwise hang on that fetch
+#     rather than fail fast -- curl has no timeout by default, so the
+#     layer stalls indefinitely instead of erroring.
+#  2. It pins WP-CLI to the build the WordPress maintainers ship for this
+#     exact PHP version (2.12.0 for PHP 8.4), instead of whatever the
+#     floating gh-pages "latest" phar happens to be on build day.
+#
+# The image is already a dependency of this build in spirit -- it is the
+# same upstream that publishes wordpress:php8.4-apache -- so this adds no
+# new trust boundary, and it comes from the same registry as the base
+# image, so a working `docker build` already implies it is reachable.
+COPY --from=wordpress:cli-php8.4 /usr/local/bin/wp /usr/local/bin/wp
+RUN wp --allow-root --version
 
+# --retry/--max-time rather than a bare curl: the default has no timeout at
+# all, so a stalled connection to a download host hangs the build forever
+# instead of failing with an error a log can show.
 RUN set -eux; \
-    curl -fsSL "https://downloads.wordpress.org/plugin/advanced-custom-fields.${ACF_VERSION}.zip" \
+    curl -fsSL --retry 3 --retry-connrefused --max-time 180 \
+        "https://downloads.wordpress.org/plugin/advanced-custom-fields.${ACF_VERSION}.zip" \
         -o /tmp/acf.zip; \
     unzip -q /tmp/acf.zip -d /usr/src/wordpress/wp-content/plugins/; \
     rm /tmp/acf.zip
