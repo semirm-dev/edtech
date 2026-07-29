@@ -1,0 +1,67 @@
+# Local harness for the PRODUCTION image -- not a development environment.
+#
+# Day-to-day work happens in DDEV (README §2), which bind-mounts plugins/
+# so edits are live. This file deliberately does the opposite: it builds
+# Dockerfile exactly as a host would and runs it with no source mounted, so
+# what boots here is what boots in production. Its purpose is to catch the
+# failures that only exist in the built image -- a missing autoloader path,
+# an inert .htaccess, an init step that is not actually idempotent -- on a
+# laptop, in about a minute, rather than in a deploy log.
+#
+#   docker compose up --build
+#   open http://localhost:8080/find-courses/
+#
+# Because nothing is mounted, code changes need a rebuild (--build) to
+# appear. That is the point.
+
+services:
+  db:
+    # MariaDB locally, mirroring DDEV (README §3). Production runs MySQL 8
+    # on the platform's managed database; the schema is portable across
+    # both -- InnoDB with a FULLTEXT index and MATCH ... AGAINST in boolean
+    # mode, no vendor-specific syntax -- so this difference is deliberate
+    # and worth exercising rather than hiding.
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${DB_NAME:-wordpress}
+      MARIADB_USER: ${DB_USER:-wordpress}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-wordpress}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+
+  wordpress:
+    build: .
+    image: edtech-course-discovery:local
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: ${DB_NAME:-wordpress}
+      WORDPRESS_DB_USER: ${DB_USER:-wordpress}
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD:-wordpress}
+      WORDPRESS_DEBUG: ${WORDPRESS_DEBUG:-1}
+      # Stands in for the RAILWAY_PUBLIC_DOMAIN a platform would inject.
+      # The http scheme matters: it keeps FORCE_SSL_ADMIN off, since there
+      # is no certificate here and forcing https would lock wp-admin out.
+      CD_SITE_DOMAIN: localhost:${HTTP_PORT:-8080}
+      CD_SITE_SCHEME: http
+      CD_SITE_URL: http://localhost:${HTTP_PORT:-8080}
+      # localhost, so init.sh's secrets guard stays out of the way and a
+      # first boot needs no configuration at all.
+      CD_ADMIN_USER: ${CD_ADMIN_USER:-admin}
+      CD_ADMIN_PASSWORD: ${CD_ADMIN_PASSWORD:-admin}
+      CD_ADMIN_EMAIL: ${CD_ADMIN_EMAIL:-admin@example.com}
+      CD_SEED: ${CD_SEED:-auto}
+
+volumes:
+  db_data:

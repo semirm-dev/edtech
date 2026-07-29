@@ -5,7 +5,21 @@
 # set defined below.
 set -euo pipefail
 
-wp() { ddev wp "$@"; }
+# This script runs in two places: on the host against DDEV, and inside the
+# deployment image (.docker/init.sh), where there is no `ddev` binary and
+# WP-CLI is on PATH directly. CD_SEED_WP_NATIVE=1 selects the latter.
+#
+# One file with two wrappers, rather than a second hand-synced copy for the
+# container: an earlier revision of this project did keep a duplicate, and
+# the two drifted -- the copy was still creating two locations and one
+# category tree after this one had grown to three and four. Fixtures that
+# differ between environments are worse than no fixtures, because the
+# difference only shows up as a test that passes in one place.
+if [ -n "${CD_SEED_WP_NATIVE:-}" ]; then
+    wp() { command wp --allow-root "$@"; }
+else
+    wp() { ddev wp "$@"; }
+fi
 
 echo "WARNING: this will delete ALL courses, instructors and providers (cd_course, cd_instructor, cd_provider posts), including any authored by hand in wp-admin."
 echo "Removing previously seeded content..."

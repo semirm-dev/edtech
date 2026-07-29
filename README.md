@@ -222,3 +222,74 @@ JSON route's own `REQUEST_URI`.
   `course-discovery-example-extension/`, text domain is
   `course-discovery-example`. Harmless here (it ships inside this repo, not
   via WordPress.org), noted rather than hidden.
+
+## 9. Deployment
+
+DDEV (§2) is the development environment. Deployment uses the `Dockerfile`
+at the repo root, which produces a self-contained image — WordPress core,
+ACF 6.8.6, both plugins, the Composer autoloader and WP-CLI are all baked
+in, so the only runtime dependency is a MySQL-compatible database.
+
+`.docker/entrypoint.sh` runs three phases in order on every container
+start: let the base image lay down core and generate `wp-config.php`, run
+`.docker/init.sh`, then exec Apache. Init is idempotent by design — it
+installs WordPress only if absent, activates plugins, publishes
+`/find-courses/` if missing, and always rebuilds the index (a derived
+projection, so rebuilding is never destructive, and it is what applies a
+migration shipped since the last deploy).
+
+Seeding is guarded, because `bin/seed.sh` deletes every course, instructor
+and provider before recreating its fixtures. `CD_SEED=auto` (the default)
+seeds only when the site has no courses; `force` reseeds and discards
+hand-authored content; `skip` never seeds.
+
+### Verify the image locally before deploying
+
+`docker-compose.yml` is a harness for the production image, not a
+development environment: it builds the `Dockerfile` and mounts no source,
+so what boots is what ships. Code changes need `--build` to appear.
+
+```bash
+docker compose up --build -d && open http://localhost:8080/find-courses/
+```
+
+The E2E suite runs against it unchanged:
+
+```bash
+cd e2e && CD_E2E_URL=http://localhost:8080 npx playwright test
+```
+
+### Deploy to Railway
+
+Two services: a **MySQL** database, and this repo built from its
+`Dockerfile` (`railway.json` selects that builder). Railway terminates TLS
+and issues a `*.up.railway.app` domain, so no reverse proxy or certificate
+handling ships here — `.docker/wp-config-extra.php` pins
+`WP_HOME`/`WP_SITEURL` from the injected `RAILWAY_PUBLIC_DOMAIN`, without
+which WordPress bakes the container's internal address into every generated
+URL.
+
+Set these on the WordPress service, referencing the database service by
+name so nothing is copied by hand:
+
+| Variable | Value |
+|---|---|
+| `WORDPRESS_DB_HOST` | `${{MySQL.MYSQLHOST}}:${{MySQL.MYSQLPORT}}` |
+| `WORDPRESS_DB_NAME` | `${{MySQL.MYSQLDATABASE}}` |
+| `WORDPRESS_DB_USER` | `${{MySQL.MYSQLUSER}}` |
+| `WORDPRESS_DB_PASSWORD` | `${{MySQL.MYSQLPASSWORD}}` |
+| `WORDPRESS_DEBUG` | `0` |
+| `CD_ADMIN_USER` | an admin username |
+| `CD_ADMIN_PASSWORD` | `openssl rand -base64 24` |
+| `CD_ADMIN_EMAIL` | a real address |
+
+`init.sh` refuses to initialise a non-localhost site while
+`CD_ADMIN_PASSWORD` is still a default (`admin`, `password`, `changeme`,
+empty), so a public deploy cannot come up with a guessable administrator
+account.
+
+**Uploads are ephemeral.** No volume is attached: the database holds all
+state, and the container filesystem is rebuilt from the image on every
+deploy. The seed ships no media, so nothing is lost — but media added
+through wp-admin would not survive a redeploy. Attaching a volume at
+`/var/www/html/wp-content/uploads` is the fix if that changes.

@@ -1,0 +1,29 @@
+# vendor/ is regenerated inside the image's `vendor` stage. Excluding it
+# here means a stale or dev-flavoured host vendor/ (it is gitignored, so it
+# differs machine to machine) can never reach the build context, let alone
+# the image.
+vendor/
+node_modules/
+
+# WordPress core: DDEV's docroot, gitignored, and irrelevant to an image
+# that gets core from the wordpress base image.
+wp/
+
+# Test and tooling surface with no runtime code path.
+e2e/
+plugins/course-discovery/tests/
+plugins/*/tests/
+phpunit.xml.dist
+phpunit-integration.xml.dist
+phpstan.neon.dist
+wp-tests-config.php
+.phpunit.result.cache
+
+.git/
+.gitignore
+.gitattributes
+.ddev/
+.superpowers/
+docs/
+*.log
+.env
