@@ -1,5 +1,10 @@
 # Course Discovery
 
+**Live demo:**
+[edtech-production-012d.up.railway.app/find-courses/](https://edtech-production-012d.up.railway.app/find-courses/)
+— seeded with the same 20-course fixture set `bin/seed.sh` creates locally.
+Deployment details in §9.
+
 ## 1. What & why
 
 A searchable course-finder built as a WordPress plugin
