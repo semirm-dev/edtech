@@ -23,7 +23,7 @@ negative snippets run through the same detection function.
 | `Money` | `Domain/Money.php` | Integer minor units plus a validated currency code — never a float; `format()` derives from the integer. |
 | `StartDate` | `Domain/StartDate.php` | Year + month; `sortKey()` returns `202603`, so chronological ordering is integer comparison, not a callback. |
 | `CoursePricing` | `Domain/CoursePricing.php` | Interface (`format()`, `lowestMinor()`) with one implementation, `SinglePrice`, so a later `PriceRange` is a new class, not a breaking change. |
-| `Pagination` | `Domain/Pagination.php` | Constructor throws on out-of-range input; `clamp()` degrades untrusted `?paged=` values to the nearest valid page. `MAX_PAGE = 10000` keeps `offset()` far from `PHP_INT_MAX`. |
+| `Pagination` | `Domain/Pagination.php` | Constructor throws on out-of-range input; `clamp()` degrades untrusted `?cd_paged=` values to the nearest valid page. `MAX_PAGE = 10000` keeps `offset()` far from `PHP_INT_MAX`. |
 | `SearchCriteria` | `Domain/Filter/SearchCriteria.php` | Immutable term + filter values + sort + pagination; `toQueryParams()`/`fromQueryParams()` make filter state shareable and back-button-safe. |
 | `FilterKey`, `FilterValues`, `FilterOptions`, `FilterOption` | `Domain/Filter/` | Typed wrappers for filter identity and selections; `FilterValues::toInts()` discards non-positive-integer entries rather than throwing. |
 | `CourseId` | `Domain/CourseId.php` | A validated post-id wrapper, so ids cannot be transposed unnoticed. |
@@ -106,7 +106,12 @@ inside one); `IndexInvalidator` decides *when*:
 Above `SYNC_REINDEX_LIMIT = 200` courses, provider reindexing defers to one
 `wp_schedule_single_event()` on `course_discovery/reindex_provider_courses`
 rather than thousands of `indexCourse()` calls in one page load; full rebuild
-is `wp course-discovery reindex` (`ReindexCommand`, `WP_CLI` only).
+is `wp course-discovery reindex` (`ReindexCommand`, `WP_CLI` only), which
+`TRUNCATE`s both lookup tables before repopulating them — a genuine rebuild,
+so it also clears rows for courses that no longer exist and resets InnoDB's
+FULLTEXT auxiliary tables, whose deleted-`FTS_DOC_ID` list would otherwise
+make freshly written rows unmatchable. Searches see an empty index while it
+runs; `TRUNCATE` is DDL, so that window cannot be closed with a transaction.
 `MigrationRunner` applies a version-ordered list from `src/Index/Migrations/`
 (`M001CreateLookupTables`, `M002AlterAttributeValueUnsigned`,
 `M003AddTitleColumn`), storing the version in the `cd_schema_version` option;

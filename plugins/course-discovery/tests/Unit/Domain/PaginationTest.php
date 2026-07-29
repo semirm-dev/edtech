@@ -104,7 +104,7 @@ final class PaginationTest extends TestCase
 
     /**
      * (int) casting an arbitrarily long digit string -- exactly what an
-     * untrusted `?paged=` parameter can contain -- saturates to
+     * untrusted `?cd_paged=` parameter can contain -- saturates to
      * PHP_INT_MAX rather than erroring. clamp() must pull that back down to
      * the same MAX_PAGE the throwing constructor enforces, not fatal.
      */

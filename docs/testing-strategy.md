@@ -23,9 +23,10 @@ project's code. Total **463 tests, 846 assertions**; `ddev composer stan` (PHPSt
 - **Architecture** (`tests/Architecture/DomainPurityTest.php`) — one file
   enforcing domain purity by scanning real source files, not by convention.
 - **E2E** (`e2e/`, Playwright) — standalone Node project, no `composer.json`
-  dependency, driving a browser against a seeded site. **2 specs**:
+  dependency, driving a browser against a seeded site. **3 specs**:
   `no-js.spec.ts` (JavaScript disabled, narrowing via the plain
-  `<form method="get">`) and `keyboard.spec.ts` (combobox by keyboard alone).
+  `<form method="get">`), `keyboard.spec.ts` (combobox by keyboard alone) and
+  `pagination.spec.ts` (page 2 over real HTTP — see below).
 
 ## High-risk areas
 
@@ -38,6 +39,20 @@ project's code. Total **463 tests, 846 assertions**; `ddev composer stan` (PHPSt
 - **Chronological ordering** — `StartDate::sortKey()` stores an integer
   (`202603`), so order is correct by construction, not by string comparison
   happening to work. `WpCourseRepositoryTest::test_results_order_by_soonest_start_date()`.
+- **Rows present but unfindable** — InnoDB gives every FULLTEXT row a hidden
+  `FTS_DOC_ID` and filters deleted ids out of every `MATCH`. Empty the lookup
+  table with `DELETE` and the doc-id counter can restart while those ids are
+  still listed, so the next generation of rows is invisible to search despite
+  correct `search_text` — `LIKE` finds them, `MATCH` never does. `indexAll()`
+  therefore `TRUNCATE`s (which resets the FTS auxiliary tables with the data),
+  pinned by `ReindexCommandTest::test_index_all_discards_rows_for_courses_that_no_longer_exist()`.
+- **Reserved WordPress query vars** — `SearchCriteria::PARAM_PAGE` is
+  `cd_paged`, not `paged`, because `redirect_canonical()` 301s `?paged=2` on a
+  shortcode-hosting page to the pretty `/page/2/`, dropping the parameter and
+  re-rendering page 1 under a page-2 URL. Invisible to PHPUnit, which renders
+  the shortcode with no HTTP layer in front of it, so it is pinned in E2E:
+  `pagination.spec.ts` asserts the parameter survives the navigation and that
+  page 2's result set shares no course with page 1's.
 - **XSS, two paths** — the reflected search term
   (`ShortcodeTest::test_it_escapes_a_reflected_search_term()`) and editor-authored
   option labels (`test_a_provider_name_containing_markup_is_escaped_in_checkbox_options()`,

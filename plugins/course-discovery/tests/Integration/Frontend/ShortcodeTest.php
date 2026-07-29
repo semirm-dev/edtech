@@ -334,9 +334,9 @@ final class ShortcodeTest extends IntegrationTestCase
 
         self::assertStringContainsString('<nav class="cd-pagination"', $html);
         self::assertMatchesRegularExpression(
-            '/<a href="[^"]*paged=2[^"]*"[^>]*>2<\/a>/',
+            '/<a href="[^"]*cd_paged=2[^"]*"[^>]*>2<\/a>/',
             $html,
-            'Expected a real link to page 2 carrying the paged query param.'
+            'Expected a real link to page 2 carrying the cd_paged query param.'
         );
         self::assertMatchesRegularExpression(
             '/<a href="[^"]*"[^>]*aria-current="page"[^>]*>1<\/a>/',

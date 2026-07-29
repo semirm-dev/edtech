@@ -79,11 +79,17 @@ Two tables, both resolved through `$wpdb->prefix`:
   extension add a whole new filterable dimension with **no migration**.
 
 Both tables are a derived projection, never a source of truth: rebuild any
-time with `ddev wp course-discovery reindex`.
+time with `ddev wp course-discovery reindex`. That command truncates both
+tables and repopulates them, so searches return nothing for the seconds it
+takes — deliberate, and the reason it is CLI-only.
 
 `./bin/seed.sh` re-runs safely, but **deletes every existing
 `cd_course`/`cd_instructor`/`cd_provider` post first**, including
-hand-authored ones, before recreating fixtures.
+hand-authored ones, before recreating fixtures. It creates 20 courses across
+4 providers, 3 locations, 4 instructors and a two-level category tree — more
+than the 12-per-page default, so the results list paginates. It finishes with
+a `reindex` and then verifies what was actually persisted, exiting non-zero if
+a fixture the tests depend on is missing.
 
 ## 5. Development commands
 
@@ -113,7 +119,7 @@ contract test case — in [`docs/testing-strategy.md`](docs/testing-strategy.md)
 | Integration | `ddev composer test:integration` | WordPress + MariaDB (wp-phpunit) | **268 tests, 527 assertions** |
 | Architecture | `ddev composer test:arch` | Nothing | **59 tests, 59 assertions** |
 | Static analysis | `ddev composer stan` | Nothing | **No errors**, PHPStan level 9 |
-| E2E (Playwright) | `cd e2e && CD_E2E_URL=https://edtech.ddev.site npx playwright test` | Node 18+, a running seeded site | **2 specs** |
+| E2E (Playwright) | `cd e2e && CD_E2E_URL=https://edtech.ddev.site npx playwright test` | Node 18+, a running seeded site | **3 specs** |
 
 Total across the PHPUnit layers: **463 tests, 846 assertions**, all green.
 The integration and architecture suites end with `OK, but there were issues!`

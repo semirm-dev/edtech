@@ -43,7 +43,7 @@ export default defineConfig({
 			// (what FormRenderer/ResultsRenderer render) works with no enhancement
 			// layer at all.
 			name: 'js-disabled',
-			testMatch: ['no-js.spec.ts'],
+			testMatch: ['no-js.spec.ts', 'pagination.spec.ts'],
 			use: { ...devices['Desktop Chrome'], javaScriptEnabled: false },
 		},
 	],

@@ -31,9 +31,10 @@ final readonly class Pagination
      * constructible in an invalid state, which is right for callers that
      * already know $page/$perPage are valid (e.g. default(), or values
      * computed internally). This is the WRONG entry point for untrusted
-     * input such as a `?paged=` parameter: `?paged=0`, `?paged=abc`, or
-     * `?paged=99999` would all throw here, uncaught, and fatal a public
-     * page. Use clamp() for anything derived from a request instead.
+     * input such as a `?cd_paged=` parameter: `?cd_paged=0`,
+     * `?cd_paged=abc`, or `?cd_paged=99999` would all throw here, uncaught,
+     * and fatal a public page. Use clamp() for anything derived from a
+     * request instead.
      */
     public function __construct(int $page, int $perPage)
     {
@@ -54,7 +55,7 @@ final readonly class Pagination
     }
 
     /**
-     * The entry point for untrusted input (e.g. a `?paged=` parameter).
+     * The entry point for untrusted input (e.g. a `?cd_paged=` parameter).
      * Clamps both values into range instead of throwing, since an
      * out-of-range request parameter is common and should fall back to
      * the nearest valid page rather than fatal a public page. The

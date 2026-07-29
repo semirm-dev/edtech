@@ -78,7 +78,7 @@ final class SearchCriteriaTest extends TestCase
 
         self::assertSame('graphic design', $params['q']);
         self::assertSame(['12', '47'], $params['provider']);
-        self::assertSame('2', $params['paged']);
+        self::assertSame('2', $params['cd_paged']);
     }
 
     public function test_it_omits_defaults_from_query_params(): void
@@ -86,7 +86,7 @@ final class SearchCriteriaTest extends TestCase
         $params = SearchCriteria::empty()->toQueryParams();
 
         self::assertArrayNotHasKey('q', $params, 'An empty search must not appear in the URL.');
-        self::assertArrayNotHasKey('paged', $params, 'Page 1 is the default and must be omitted.');
+        self::assertArrayNotHasKey('cd_paged', $params, 'Page 1 is the default and must be omitted.');
         self::assertArrayNotHasKey('sort', $params);
     }
 
@@ -155,7 +155,7 @@ final class SearchCriteriaTest extends TestCase
     public function test_it_clamps_a_hostile_page_number(): void
     {
         foreach (['0', '-5', 'abc', '99999999999999999999', '1.9', '', '0x10'] as $hostile) {
-            $criteria = SearchCriteria::fromQueryParams(['paged' => $hostile], []);
+            $criteria = SearchCriteria::fromQueryParams(['cd_paged' => $hostile], []);
 
             self::assertGreaterThanOrEqual(1, $criteria->pagination->page);
             self::assertLessThanOrEqual(10000, $criteria->pagination->page);
@@ -197,14 +197,14 @@ final class SearchCriteriaTest extends TestCase
             ->withPagination(new Pagination(3, 48))
             ->toQueryParams();
 
-        // If 48 leaked into the params, this would fail: 'paged' is the only
+        // If 48 leaked into the params, this would fail: 'cd_paged' is the only
         // key present, and its value carries the page number, not the size.
-        self::assertSame(['paged' => '3'], $params);
+        self::assertSame(['cd_paged' => '3'], $params);
     }
 
     public function test_a_caller_supplied_page_size_is_honoured(): void
     {
-        $criteria = SearchCriteria::fromQueryParams(['paged' => '2'], [], 48);
+        $criteria = SearchCriteria::fromQueryParams(['cd_paged' => '2'], [], 48);
 
         self::assertSame(48, $criteria->pagination->perPage);
     }
@@ -215,7 +215,7 @@ final class SearchCriteriaTest extends TestCase
         // $_GET happens to contain something that looks like one, it must
         // not override the value the caller explicitly passed in.
         $criteria = SearchCriteria::fromQueryParams(
-            ['paged' => '2', 'perPage' => '999', 'per_page' => '999'],
+            ['cd_paged' => '2', 'perPage' => '999', 'per_page' => '999'],
             [],
             48
         );
@@ -225,7 +225,7 @@ final class SearchCriteriaTest extends TestCase
 
     public function test_an_omitted_page_size_falls_back_to_the_default(): void
     {
-        $criteria = SearchCriteria::fromQueryParams(['paged' => '2'], []);
+        $criteria = SearchCriteria::fromQueryParams(['cd_paged' => '2'], []);
 
         self::assertSame(Pagination::default()->perPage, $criteria->pagination->perPage);
     }
@@ -271,7 +271,7 @@ final class SearchCriteriaTest extends TestCase
 
     public function test_a_non_scalar_page_does_not_throw_and_falls_back_to_page_one(): void
     {
-        $criteria = SearchCriteria::fromQueryParams(['paged' => ['a']], []);
+        $criteria = SearchCriteria::fromQueryParams(['cd_paged' => ['a']], []);
 
         self::assertSame(1, $criteria->pagination->page);
     }

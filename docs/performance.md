@@ -1,7 +1,7 @@
 # Course Discovery — performance
 
 Query counts and `EXPLAIN` output below are real, run against this project's
-dev DB — but it holds only 2 seeded courses, so claims about large volumes are
+dev DB — but it holds only 20 seeded courses, so claims about large volumes are
 reasoning from the schema and query plan, not measurements.
 
 ## Why native `meta_query` can't do this
@@ -101,7 +101,7 @@ per-render. Documented, deliberately not built.
 ## Pagination
 
 `Pagination` bounds page size to 1–100 (`MAX_PER_PAGE`) and page to 1–10,000
-(`MAX_PAGE`); `clamp()` coerces untrusted `?paged=`/`?per_page=` into range
+(`MAX_PAGE`); `clamp()` coerces untrusted `?cd_paged=`/`?per_page=` into range
 rather than throwing, so a hostile request degrades to a sane page instead of
 fataling a public endpoint. Offset pagination is used throughout (`LIMIT %d
 OFFSET %d`): `OFFSET` counts past every skipped row, so cost grows with depth

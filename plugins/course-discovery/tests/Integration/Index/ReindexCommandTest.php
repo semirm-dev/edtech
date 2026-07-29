@@ -88,6 +88,74 @@ final class ReindexCommandTest extends IntegrationTestCase
         self::assertSame($count, $rows, 'Every reindexed course must have an index row.');
     }
 
+    /**
+     * A rebuild must START from an empty projection, not upsert row by row
+     * over whatever is already there. Two reasons, one visible and one not:
+     *
+     *  - Visible: a course deleted while its delete hook could not run (a
+     *    direct SQL delete, a crashed request, a partial dump restore)
+     *    leaves a row no per-course reindex will ever revisit, because
+     *    indexAll() only walks posts that still exist.
+     *  - Invisible: InnoDB assigns every FULLTEXT row a hidden FTS_DOC_ID
+     *    and keeps deleted ids in an internal FTS_DELETED list, whose
+     *    entries are filtered out of every MATCH. Empty the table by
+     *    DELETE and the doc-id counter can restart while that list still
+     *    holds the old ids, so fresh rows inherit ids the engine still
+     *    considers deleted -- present in the table, correct search_text,
+     *    and permanently unfindable. TRUNCATE recreates the table and its
+     *    FTS auxiliary tables together, which is the only way to clear it
+     *    (OPTIMIZE TABLE with innodb_optimize_fulltext_only does not).
+     */
+    public function test_index_all_discards_rows_for_courses_that_no_longer_exist(): void
+    {
+        global $wpdb;
+
+        self::factory()->post->create(['post_type' => PostTypes::COURSE, 'post_status' => 'publish']);
+
+        $ghostId = 999999;
+
+        $wpdb->insert(
+            $this->schema->metaLookupTable(),
+            [
+                'course_id'         => $ghostId,
+                'price_minor'       => 100,
+                'earliest_start_ym' => null,
+                'search_text'       => 'Ghost course',
+                'title'             => 'Ghost course',
+            ],
+            ['%d', '%d', '%d', '%s', '%s']
+        );
+
+        $wpdb->insert(
+            $this->schema->attributeLookupTable(),
+            ['course_id' => $ghostId, 'attribute' => 'provider', 'value_id' => 1],
+            ['%d', '%s', '%d']
+        );
+
+        $count = $this->indexer->indexAll();
+
+        self::assertSame(1, $count);
+
+        $metaTable = $this->schema->metaLookupTable();
+        $attributeTable = $this->schema->attributeLookupTable();
+
+        self::assertSame(
+            0,
+            (int) $wpdb->get_var(
+                $wpdb->prepare("SELECT COUNT(*) FROM {$metaTable} WHERE course_id = %d", $ghostId)
+            ),
+            'A rebuild must not leave an index row for a course that no longer exists.'
+        );
+
+        self::assertSame(
+            0,
+            (int) $wpdb->get_var(
+                $wpdb->prepare("SELECT COUNT(*) FROM {$attributeTable} WHERE course_id = %d", $ghostId)
+            ),
+            'A rebuild must not leave attribute rows for a course that no longer exists.'
+        );
+    }
+
     public function test_index_all_skips_drafts(): void
     {
         self::factory()->post->create(['post_type' => PostTypes::COURSE, 'post_status' => 'publish']);

@@ -25,7 +25,16 @@ final readonly class SearchCriteria
 {
     public const PARAM_TERM = 'q';
     public const PARAM_SORT = 'sort';
-    public const PARAM_PAGE = 'paged';
+
+    /**
+     * Prefixed, unlike PARAM_TERM/PARAM_SORT, because `paged` and `page`
+     * are WordPress-reserved query vars: on a page holding the shortcode,
+     * redirect_canonical() 301s `?paged=2` to the pretty `/page/2/`, which
+     * sets the `page` query var and drops `paged` from $_GET entirely — so
+     * every pagination link past the first silently rendered page 1. The
+     * prefix keeps the parameter ours and out of WP_Query's hands.
+     */
+    public const PARAM_PAGE = 'cd_paged';
 
     /**
      * Bounds untrusted term length (enforced in fromQueryParams()) so a
@@ -176,7 +185,7 @@ final readonly class SearchCriteria
     /**
      * Rebuilds criteria from untrusted input. Only keys in $known are
      * read, so an unknown parameter cannot introduce a filter, and
-     * pagination is clamped rather than validated so a hostile ?paged=
+     * pagination is clamped rather than validated so a hostile ?cd_paged=
      * can't throw on a public page. Page SIZE is not read from $params —
      * see toQueryParams() — the caller supplies it via $perPage, defaulting
      * to Pagination::default()->perPage. Term length and filter value

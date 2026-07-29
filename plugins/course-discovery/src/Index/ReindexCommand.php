@@ -12,6 +12,12 @@ use WP_CLI;
  * Recovery for an index that has drifted — after a bulk import, a direct
  * database edit, or a schema change. Also the fastest way to populate the
  * index on a site that had content before the plugin was activated.
+ *
+ * A true rebuild: indexAll() empties both lookup tables before repopulating
+ * them, so it also clears rows for courses that no longer exist and resets
+ * InnoDB's FULLTEXT auxiliary state (see truncateLookupTables() for why the
+ * latter is not optional). Searches therefore return nothing for the few
+ * seconds a rebuild takes — run it deliberately, not on a schedule.
  */
 final class ReindexCommand
 {

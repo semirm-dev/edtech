@@ -115,7 +115,11 @@ final class CourseIndexer
     }
 
     /**
-     * Reindexes every published course. Returns the number processed.
+     * Rebuilds the whole projection from scratch. Returns the number of
+     * published courses processed.
+     *
+     * The post ids are collected BEFORE the tables are emptied, so a failure
+     * to read them leaves the existing index untouched rather than wiped.
      */
     public function indexAll(): int
     {
@@ -126,6 +130,8 @@ final class CourseIndexer
             'fields'         => 'ids',
         ]);
 
+        $this->truncateLookupTables();
+
         $count = 0;
 
         foreach ($ids as $id) {
@@ -134,6 +140,51 @@ final class CourseIndexer
         }
 
         return $count;
+    }
+
+    /**
+     * Empties both lookup tables ahead of a full rebuild.
+     *
+     * TRUNCATE, not DELETE, and the difference is not cosmetic. InnoDB gives
+     * every row in a FULLTEXT index a hidden FTS_DOC_ID and keeps the ids of
+     * deleted rows in an internal FTS_DELETED list, whose entries are
+     * filtered out of the result of every MATCH. Emptying the table with
+     * DELETE leaves those auxiliary tables in place while the doc-id counter
+     * can restart from the now-empty index, so the next generation of rows
+     * inherits ids the engine still considers deleted: the row is present,
+     * its search_text is correct, and no keyword will ever match it.
+     * (Observed on this project — a seeded course invisible to search while
+     * `LIKE` found it happily. OPTIMIZE TABLE with
+     * innodb_optimize_fulltext_only=ON did NOT clear the list.) TRUNCATE
+     * drops and recreates the table together with its FTS auxiliary tables,
+     * which resets both halves of that state consistently.
+     *
+     * The cost is that TRUNCATE is DDL: it causes an implicit commit, so a
+     * rebuild cannot be wrapped in a transaction and searches run against an
+     * empty index for as long as the rebuild takes. That is the accepted
+     * trade for a recovery command — `wp course-discovery reindex` is
+     * deliberate, occasional, and the alternative is an index that cannot be
+     * repaired at all.
+     */
+    private function truncateLookupTables(): void
+    {
+        $tables = [
+            $this->schema->metaLookupTable(),
+            $this->schema->attributeLookupTable(),
+        ];
+
+        foreach ($tables as $table) {
+            // $table is never user input — $wpdb->prefix plus a fixed Schema
+            // suffix — and TRUNCATE takes no bindable parameters, so there is
+            // nothing here for prepare() to do.
+            if ($this->db->query("TRUNCATE TABLE {$table}") === false) {
+                throw new RuntimeException(sprintf(
+                    'Failed to truncate %s before a full reindex: %s',
+                    $table,
+                    $this->db->last_error
+                ));
+            }
+        }
     }
 
     /**

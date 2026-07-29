@@ -12,10 +12,10 @@ use CourseDiscovery\Frontend\ResultsRenderer;
 use CourseDiscovery\Tests\Integration\IntegrationTestCase;
 
 /**
- * Pagination::clamp() only clamps a forged `?paged=` against
+ * Pagination::clamp() only clamps a forged `?cd_paged=` against
  * MAX_PAGE (10000) -- it has no way to know this particular result set's
  * actual totalPages() until after the query has run (see its own
- * docblock), so a request like `?paged=3` against a 5-result/12-per-page
+ * docblock), so a request like `?cd_paged=3` against a 5-result/12-per-page
  * search reaches ResultsRenderer with an honest total of 5 but a page that
  * does not exist. Before the fix, render() still printed "5 courses
  * found" and then an empty <ol> underneath it -- a positive count over a
