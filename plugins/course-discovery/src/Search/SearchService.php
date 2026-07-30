@@ -39,11 +39,16 @@ final readonly class SearchService
     }
 
     /**
+     * $perPage is supplied by the caller rather than read from $params, and
+     * null means "use the default" -- see SearchCriteria::toQueryParams(),
+     * which never serialises page size precisely so that a forged
+     * ?per_page= cannot ride along on a shared URL.
+     *
      * @param array<string, mixed> $params
      */
-    public function criteriaFromParams(array $params): SearchCriteria
+    public function criteriaFromParams(array $params, ?int $perPage = null): SearchCriteria
     {
-        return SearchCriteria::fromQueryParams($params, $this->registry->keys());
+        return SearchCriteria::fromQueryParams($params, $this->registry->keys(), $perPage);
     }
 
     public function search(SearchCriteria $criteria): SearchResult

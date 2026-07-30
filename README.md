@@ -78,6 +78,12 @@ at `https://edtech.ddev.site/wp-admin/` (`admin` / `admin` — local only; the
 deployment path in §9 refuses default credentials outright). The example
 extension stays inactive until you activate it — that demo is in §1.
 
+`[course_discovery]` takes one optional attribute, `per_page`, defaulting to
+12: `[course_discovery per_page="24"]`. It is clamped to 1–50, and anything
+that is not a number falls back to the default, so a typo cannot ask a
+public page for an unbounded result set. Page size is never read from the
+URL — a forged `?per_page=` would otherwise ride along on every shared link.
+
 Re-running is safe except for `./bin/seed.sh`, which deletes existing
 courses, instructors and providers before recreating fixtures (§4).
 `ddev composer install` is only needed once, or after a `composer.lock`

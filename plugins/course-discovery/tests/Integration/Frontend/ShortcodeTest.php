@@ -55,6 +55,27 @@ final class ShortcodeTest extends IntegrationTestCase
         return do_shortcode('[' . Shortcode::TAG . ']');
     }
 
+    private function renderWith(string $atts): string
+    {
+        return do_shortcode('[' . Shortcode::TAG . ' ' . $atts . ']');
+    }
+
+    private function cardCount(string $html): int
+    {
+        return substr_count($html, '<li class="cd-result">');
+    }
+
+    /**
+     * setUp() already seeded one course, so this tops the catalogue up to
+     * $total rather than adding $total more.
+     */
+    private function seedCourses(int $total): void
+    {
+        for ($i = 2; $i <= $total; $i++) {
+            $this->createCourse('Course ' . $i, '950', [202603]);
+        }
+    }
+
     /**
      * @param list<int> $startDates
      */
@@ -578,5 +599,83 @@ final class ShortcodeTest extends IntegrationTestCase
     public function test_no_chip_block_renders_for_an_unfiltered_search(): void
     {
         self::assertStringNotContainsString('cd-active-filters', $this->render());
+    }
+
+    /* --------------------------------------------------------------- *
+     * The per_page attribute
+     * --------------------------------------------------------------- */
+
+    public function test_without_the_attribute_the_default_page_size_applies(): void
+    {
+        $this->seedCourses(14);
+
+        self::assertSame(12, $this->cardCount($this->render()));
+    }
+
+    public function test_the_attribute_sets_how_many_courses_a_page_shows(): void
+    {
+        $this->seedCourses(5);
+
+        self::assertSame(2, $this->cardCount($this->renderWith('per_page="2"')));
+    }
+
+    public function test_the_attribute_drives_pagination_too(): void
+    {
+        $this->seedCourses(5);
+
+        $html = $this->renderWith('per_page="2"');
+
+        self::assertStringContainsString('aria-label="Page 3"', $html, '5 courses at 2 per page is 3 pages.');
+        self::assertStringNotContainsString('aria-label="Page 4"', $html);
+    }
+
+    /**
+     * Page size is a property of the page carrying the shortcode, not of
+     * the request -- so it must not end up in a pagination link, where it
+     * would become a forgeable `?per_page=` on every URL a visitor shares.
+     */
+    public function test_the_page_size_never_leaks_into_pagination_urls(): void
+    {
+        $this->seedCourses(5);
+
+        $html = $this->renderWith('per_page="2"');
+
+        self::assertStringContainsString('cd_paged=2', html_entity_decode($html));
+        self::assertStringNotContainsString('per_page', $html);
+    }
+
+    public function test_a_page_of_the_larger_size_still_paginates_correctly(): void
+    {
+        $this->seedCourses(5);
+
+        $_GET['cd_paged'] = '3';
+
+        $html = $this->renderWith('per_page="2"');
+
+        self::assertSame(1, $this->cardCount($html), 'Page 3 of 5 courses at 2 per page holds the last one.');
+    }
+
+    public function test_a_zero_page_size_is_clamped_rather_than_fatal(): void
+    {
+        $this->seedCourses(5);
+
+        self::assertSame(1, $this->cardCount($this->renderWith('per_page="0"')));
+    }
+
+    public function test_an_absurd_page_size_is_clamped_rather_than_fatal(): void
+    {
+        $this->seedCourses(5);
+
+        $html = $this->renderWith('per_page="99999"');
+
+        self::assertSame(5, $this->cardCount($html));
+        self::assertStringNotContainsString('cd-pagination', $html, 'All five fit on the clamped page.');
+    }
+
+    public function test_a_nonsense_page_size_falls_back_to_the_default(): void
+    {
+        $this->seedCourses(14);
+
+        self::assertSame(12, $this->cardCount($this->renderWith('per_page="abc"')));
     }
 }
