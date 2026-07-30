@@ -4,10 +4,18 @@ declare(strict_types=1);
 
 namespace CourseDiscovery\Tests\Integration\Frontend;
 
+use CourseDiscovery\ContentModel\PostTypes;
+use CourseDiscovery\ContentModel\Taxonomies;
+use CourseDiscovery\Domain\Course;
 use CourseDiscovery\Domain\CourseCollection;
+use CourseDiscovery\Domain\CourseId;
 use CourseDiscovery\Domain\Filter\SearchCriteria;
+use CourseDiscovery\Domain\Money;
 use CourseDiscovery\Domain\Pagination;
 use CourseDiscovery\Domain\SearchResult;
+use CourseDiscovery\Domain\SinglePrice;
+use CourseDiscovery\Domain\StartDateCollection;
+use CourseDiscovery\Frontend\AttributeLabels;
 use CourseDiscovery\Frontend\ResultsRenderer;
 use CourseDiscovery\Tests\Integration\IntegrationTestCase;
 
@@ -24,6 +32,11 @@ use CourseDiscovery\Tests\Integration\IntegrationTestCase;
  */
 final class ResultsRendererTest extends IntegrationTestCase
 {
+    private function renderer(): ResultsRenderer
+    {
+        return new ResultsRenderer(new AttributeLabels());
+    }
+
     public function test_a_page_past_the_end_with_results_present_does_not_render_a_bare_empty_list(): void
     {
         $result = new SearchResult(
@@ -32,11 +45,11 @@ final class ResultsRendererTest extends IntegrationTestCase
             new Pagination(3, 12) // page 3 of ceil(5/12) = 1 total page
         );
 
-        $html = (new ResultsRenderer())->render($result, SearchCriteria::empty(), 'https://example.test/courses/');
+        $html = $this->renderer()->render($result, SearchCriteria::empty(), 'https://example.test/courses/');
 
         self::assertStringContainsString(
             '5 courses found',
-            (new ResultsRenderer())->renderCount($result),
+            $this->renderer()->renderCount($result),
             'The accurate total must still be reported.'
         );
         self::assertStringNotContainsString(
@@ -59,7 +72,7 @@ final class ResultsRendererTest extends IntegrationTestCase
             new Pagination(1, 12)
         );
 
-        $html = (new ResultsRenderer())->render($result, SearchCriteria::empty(), 'https://example.test/courses/');
+        $html = $this->renderer()->render($result, SearchCriteria::empty(), 'https://example.test/courses/');
 
         self::assertStringContainsString('<ol class="cd-results-list">', $html);
         self::assertStringNotContainsString(
@@ -84,7 +97,7 @@ final class ResultsRendererTest extends IntegrationTestCase
             new Pagination($currentPage, $perPage)
         );
 
-        return (new ResultsRenderer())->render(
+        return $this->renderer()->render(
             $result,
             SearchCriteria::empty(),
             'https://example.test/courses/'
@@ -240,6 +253,160 @@ final class ResultsRendererTest extends IntegrationTestCase
             '/<a href="[^"]*"[^>]*aria-current="page"[^>]*>6<\/a>/',
             $this->renderWithPages(6, 12),
             'The current page stays a link -- e2e addresses pages by their link role.'
+        );
+    }
+
+    /* --------------------------------------------------------------- *
+     * The provider / location meta line
+     * --------------------------------------------------------------- */
+
+    public function test_a_card_names_its_provider_and_location(): void
+    {
+        $html = $this->renderCards([
+            $this->makeCourse([$this->makeProvider('Coventry University')], [$this->makeLocation('Coventry')]),
+        ]);
+
+        self::assertStringContainsString('<span class="cd-result-providers">Coventry University</span>', $html);
+        self::assertStringContainsString('<span class="cd-result-locations">Coventry</span>', $html);
+    }
+
+    /**
+     * The dot is punctuation between two lists, not content: a screen
+     * reader announcing "middle dot" between every provider and its
+     * location is noise on every card in the results.
+     */
+    public function test_the_separator_is_hidden_from_assistive_technology(): void
+    {
+        $html = $this->renderCards([
+            $this->makeCourse([$this->makeProvider('Coventry University')], [$this->makeLocation('Coventry')]),
+        ]);
+
+        self::assertStringContainsString('<span class="cd-result-meta-sep" aria-hidden="true">', $html);
+    }
+
+    public function test_several_providers_and_locations_are_listed_in_full(): void
+    {
+        $html = $this->renderCards([
+            $this->makeCourse(
+                [$this->makeProvider('Coventry University'), $this->makeProvider('University of Leeds')],
+                [$this->makeLocation('Coventry'), $this->makeLocation('Leeds')]
+            ),
+        ]);
+
+        self::assertStringContainsString(
+            '<span class="cd-result-providers">Coventry University, University of Leeds</span>',
+            $html
+        );
+        self::assertStringContainsString('<span class="cd-result-locations">Coventry, Leeds</span>', $html);
+    }
+
+    public function test_a_course_with_no_provider_renders_no_meta_line_at_all(): void
+    {
+        $html = $this->renderCards([$this->makeCourse([], [])]);
+
+        self::assertStringNotContainsString('cd-result-meta', $html);
+    }
+
+    /**
+     * Locations are derived from providers during indexing, so a provider
+     * whose location term was deleted leaves one side of the pair empty.
+     * A separator with nothing after it is a dangling dot.
+     */
+    public function test_a_provider_with_no_location_renders_no_separator(): void
+    {
+        $html = $this->renderCards([
+            $this->makeCourse([$this->makeProvider('Coventry University')], []),
+        ]);
+
+        self::assertStringContainsString('<span class="cd-result-providers">Coventry University</span>', $html);
+        self::assertStringNotContainsString('cd-result-meta-sep', $html);
+        self::assertStringNotContainsString('cd-result-locations', $html);
+    }
+
+    /**
+     * The lookup table is a projection and can name a provider that has
+     * since been unpublished. It must drop out silently -- never render as
+     * a bare id, and never leave the line looking like a rendering bug.
+     */
+    public function test_an_unresolvable_provider_is_dropped_rather_than_rendered_as_an_id(): void
+    {
+        $html = $this->renderCards([$this->makeCourse([999999], [])]);
+
+        self::assertStringNotContainsString('999999', $html);
+        self::assertStringNotContainsString('cd-result-meta', $html);
+    }
+
+    public function test_a_provider_title_is_escaped_on_output(): void
+    {
+        $html = $this->renderCards([
+            $this->makeCourse([$this->makeProvider('Ada & <script>alert(1)</script>')], []),
+        ]);
+
+        self::assertStringNotContainsString('<script>alert(1)</script>', $html);
+        self::assertStringContainsString('Ada &amp;', $html);
+    }
+
+    /**
+     * @param list<Course> $courses
+     */
+    private function renderCards(array $courses): string
+    {
+        $result = new SearchResult(
+            CourseCollection::fromArray($courses),
+            count($courses),
+            new Pagination(1, 12)
+        );
+
+        return $this->renderer()->render($result, SearchCriteria::empty(), 'https://example.test/courses/');
+    }
+
+    private function makeProvider(string $title): int
+    {
+        /** @var int $id */
+        $id = self::factory()->post->create([
+            'post_type'   => PostTypes::PROVIDER,
+            'post_title'  => $title,
+            'post_status' => 'publish',
+        ]);
+
+        return $id;
+    }
+
+    private function makeLocation(string $name): int
+    {
+        /** @var int $id */
+        $id = self::factory()->term->create([
+            'taxonomy' => Taxonomies::LOCATION,
+            'name'     => $name,
+        ]);
+
+        return $id;
+    }
+
+    /**
+     * @param list<int> $providerIds
+     * @param list<int> $locationIds
+     */
+    private function makeCourse(array $providerIds, array $locationIds): Course
+    {
+        /** @var int $postId */
+        $postId = self::factory()->post->create([
+            'post_type'   => PostTypes::COURSE,
+            'post_title'  => 'Graphic Design Foundation',
+            'post_status' => 'publish',
+        ]);
+
+        return new Course(
+            id: CourseId::fromInt($postId),
+            title: 'Graphic Design Foundation',
+            shortDescription: 'Learn the fundamentals of visual communication.',
+            longDescription: 'Full description.',
+            pricing: new SinglePrice(Money::fromMinor(95000, 'GBP')),
+            startDates: StartDateCollection::fromSortKeys([]),
+            providerIds: $providerIds,
+            instructorIds: [],
+            categoryIds: [],
+            locationIds: $locationIds,
         );
     }
 }

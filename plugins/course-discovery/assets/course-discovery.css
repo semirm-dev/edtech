@@ -467,6 +467,21 @@
 	color: var(--cd-text-muted);
 }
 
+/*
+ * Who runs the course and where. Deliberately the same muted small type as
+ * .cd-result-start: both are supporting facts about the course, and only
+ * the title and the price should carry weight on a card.
+ */
+.cd-result-meta {
+	margin: 0 0 var(--cd-space-xs);
+	font-size: var(--cd-font-sm);
+	color: var(--cd-text-muted);
+}
+
+.cd-result-providers {
+	font-weight: 600;
+}
+
 .cd-result-price {
 	margin: 0;
 	font-weight: 700;

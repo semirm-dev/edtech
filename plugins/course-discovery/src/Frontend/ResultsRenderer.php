@@ -19,6 +19,10 @@ use CourseDiscovery\Domain\SearchResult;
  */
 final class ResultsRenderer
 {
+    public function __construct(private readonly AttributeLabels $labels)
+    {
+    }
+
     /**
      * The result count, as its own live region.
      *
@@ -84,10 +88,14 @@ final class ResultsRenderer
 
     private function renderList(SearchResult $result): string
     {
+        // Resolved once for the whole page, not once per card -- see
+        // AttributeLabels.
+        $labels = $this->labels->forPage($result->courses);
+
         $html = '<ol class="cd-results-list">';
 
         foreach ($result->courses as $course) {
-            $html .= $this->renderItem($course);
+            $html .= $this->renderItem($course, $labels);
         }
 
         $html .= '</ol>';
@@ -95,7 +103,7 @@ final class ResultsRenderer
         return $html;
     }
 
-    private function renderItem(Course $course): string
+    private function renderItem(Course $course, LabelMap $labels): string
     {
         $permalink = get_permalink($course->id->value);
         $url = $permalink !== false ? $permalink : '';
@@ -104,11 +112,73 @@ final class ResultsRenderer
         $html .= '<h3 class="cd-result-title"><a href="' . esc_url($url) . '">'
             . esc_html($course->title) . '</a></h3>';
         $html .= '<p class="cd-result-description">' . esc_html($course->shortDescription) . '</p>';
+        $html .= $this->renderMeta($course, $labels);
         $html .= '<p class="cd-result-price">' . esc_html($course->pricing->format()) . '</p>';
         $html .= '<p class="cd-result-start">' . esc_html($this->startLabel($course)) . '</p>';
         $html .= '</li>';
 
         return $html;
+    }
+
+    /**
+     * Who runs the course and where, e.g. "Coventry University · Coventry".
+     *
+     * Nothing renders when no provider name resolves: a course with no
+     * provider indexed, or one whose provider rows have gone stale, gets no
+     * meta line at all rather than an empty element or a placeholder. The
+     * separator follows the same rule -- it only appears with a list on
+     * each side of it, so a provider whose location term was deleted never
+     * ends up with a dangling dot.
+     *
+     * The dot itself is aria-hidden: it is punctuation between two lists,
+     * and a screen reader announcing "middle dot" on every card in the
+     * results is noise.
+     */
+    private function renderMeta(Course $course, LabelMap $labels): string
+    {
+        $providers = $this->names($course->providerIds, fn (int $id): ?string => $labels->provider($id));
+
+        if ($providers === []) {
+            return '';
+        }
+
+        $locations = $this->names($course->locationIds, fn (int $id): ?string => $labels->location($id));
+
+        $html = '<p class="cd-result-meta">';
+        $html .= '<span class="cd-result-providers">' . esc_html(implode(', ', $providers)) . '</span>';
+
+        if ($locations !== []) {
+            $html .= '<span class="cd-result-meta-sep" aria-hidden="true"> &middot; </span>';
+            $html .= '<span class="cd-result-locations">' . esc_html(implode(', ', $locations)) . '</span>';
+        }
+
+        $html .= '</p>';
+
+        return $html;
+    }
+
+    /**
+     * Ids that resolve, in the order the course carries them -- which the
+     * attribute lookup already returns sorted, so the line is stable
+     * between renders. An id that resolves to null is dropped.
+     *
+     * @param  list<int>                $ids
+     * @param  callable(int): ?string   $resolve
+     * @return list<string>
+     */
+    private function names(array $ids, callable $resolve): array
+    {
+        $names = [];
+
+        foreach ($ids as $id) {
+            $name = $resolve($id);
+
+            if ($name !== null && $name !== '') {
+                $names[] = $name;
+            }
+        }
+
+        return $names;
     }
 
     private function startLabel(Course $course): string

@@ -94,7 +94,7 @@ final class Plugin
             (new Frontend\Shortcode(
                 $container->get(Search\SearchService::class),
                 new Frontend\FormRenderer(new Frontend\SearchUrls()),
-                new Frontend\ResultsRenderer(),
+                new Frontend\ResultsRenderer(new Frontend\AttributeLabels()),
                 new Frontend\ActiveFiltersRenderer(new Frontend\SearchUrls()),
             ))->register();
         });
