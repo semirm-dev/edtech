@@ -174,6 +174,7 @@ a fixture the tests depend on is missing.
 | A single test class | `ddev exec vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ReindexCommandTest` (use `-c phpunit.xml.dist` for a unit-suite class) |
 | Rebuild the search index | `ddev wp course-discovery reindex` |
 | Seed demo content | `./bin/seed.sh` |
+| Build installable plugin zips | `./bin/package.sh` → `dist/` (§9) |
 | Regenerate translation templates | `ddev wp i18n make-pot plugins/course-discovery plugins/course-discovery/languages/course-discovery.pot --domain=course-discovery` (and the equivalent for the extension) |
 | Playwright E2E | `cd e2e && npm install && npx playwright install --with-deps chromium && CD_E2E_URL=https://edtech.ddev.site npx playwright test` |
 
@@ -247,6 +248,13 @@ The decisions most worth knowing before reading code:
   shared behaviour is held as a collaborator (`TermOptions`,
   `PostTypeOptions`), not inherited — composition applied concretely rather
   than stated as a principle.
+- **No Composer autoloader at runtime.** Both plugins load their own classes:
+  the main plugin registers a PSR-4 closure rooted at its own directory, the
+  extension `require`s its single class. Composer stays a development
+  dependency (PHPUnit, PHPStan, the test autoloader) — `require` is
+  `php >= 8.3` and nothing else. That is what makes a plugin directory
+  installable on its own (§9) rather than only inside this repository, where
+  `vendor/` happens to sit four levels up.
 - **Bedrock — considered, rejected.** Better reproducibility, but its
   non-standard layout complicates deployment and spends effort on
   infrastructure that isn't the point here. Plain WordPress, with DDEV on top.
@@ -390,3 +398,35 @@ state, and the container filesystem is rebuilt from the image on every
 deploy. The seed ships no media, so nothing is lost — but media added
 through wp-admin would not survive a redeploy. Attaching a volume at
 `/var/www/html/wp-content/uploads` is the fix if that changes.
+
+### Shipping a plugin on its own
+
+Everything above deploys the whole site. To hand a single plugin to a
+WordPress install that knows nothing about this repository:
+
+```bash
+./bin/package.sh
+```
+
+That writes `dist/course-discovery-0.1.0.zip` and
+`dist/course-discovery-example-extension-0.1.0.zip`, each with the plugin
+directory at the zip root — the shape `wp plugin install` and wp-admin's
+*Upload Plugin* both require, since WordPress unpacks the archive straight
+into `wp-content/plugins/`. Contents come from `git ls-files` with
+working-tree content, so a stray `vendor/`, `.env` or editor backup cannot
+reach a release; `tests/` is dropped; nothing else is, because neither plugin
+has a build step.
+
+```bash
+wp plugin install course-discovery-0.1.0.zip --activate
+```
+
+No Composer, no `vendor/`, no build: each plugin autoloads its own classes
+(§7). The extension zip additionally needs the main plugin active, and
+degrades to an admin notice when it isn't (§1).
+
+Checked against a stock DDEV WordPress with this repository nowhere in sight
+and no `vendor/` above the plugin at any level: the plugin activates, the
+`wp course-discovery reindex` command registers, `/find-courses/` renders the
+seeded 20 courses with zero notices, and installing the extension zip on top
+adds its Instructor filter through the public hooks alone.
