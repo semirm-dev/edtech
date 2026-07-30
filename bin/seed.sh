@@ -72,24 +72,33 @@ provider() {
     printf '%s' "$id"
 }
 
-declare -A PROVIDER=(
-    [sunderland]=$(provider "University of Sunderland" india)
-    [dmu]=$(provider "De Montfort University" china)
-    [leeds]=$(provider "University of Leeds" india)
-    [coventry]=$(provider "Coventry University" united-kingdom)
-)
+# One variable per key, read back below through indirect expansion, rather
+# than an associative array (`declare -A PROVIDER=([sunderland]=...)`).
+#
+# Associative arrays need bash 4, and macOS still ships bash 3.2.57 as
+# /bin/bash -- which `#!/usr/bin/env bash` picks up. There, PROVIDER is a
+# plain indexed array, so the subscript is evaluated as ARITHMETIC: the
+# literal `[sunderland]` reads a variable *named* sunderland, which does not
+# exist, and `set -u` aborts the whole seed with
+#
+#     ./bin/seed.sh: line 75: sunderland: unbound variable
+#
+# Nothing else in this script needs bash 4, so keep it running on the bash a
+# reviewer already has instead of requiring `brew install bash`.
+PROVIDER_sunderland=$(provider "University of Sunderland" india)
+PROVIDER_dmu=$(provider "De Montfort University" china)
+PROVIDER_leeds=$(provider "University of Leeds" india)
+PROVIDER_coventry=$(provider "Coventry University" united-kingdom)
 
 echo "Creating instructors..."
 instructor() {
     wp post create --post_type=cd_instructor --post_title="$1" --post_status=publish --porcelain
 }
 
-declare -A INSTRUCTOR=(
-    [ada]=$(instructor "Ada Lovelace")
-    [alan]=$(instructor "Alan Turing")
-    [grace]=$(instructor "Grace Hopper")
-    [katherine]=$(instructor "Katherine Johnson")
-)
+INSTRUCTOR_ada=$(instructor "Ada Lovelace")
+INSTRUCTOR_alan=$(instructor "Alan Turing")
+INSTRUCTOR_grace=$(instructor "Grace Hopper")
+INSTRUCTOR_katherine=$(instructor "Katherine Johnson")
 
 # Maps the readable keys used in the course table below to the post IDs
 # created above: "sunderland dmu" -> "41 42".
@@ -97,7 +106,18 @@ ids_from() {
     local map="$1" key ref out=""
 
     for key in $2; do
-        ref="${map}[${key}]"
+        ref="${map}_${key}"
+
+        # Indirect expansion, which behaves identically on bash 3.2 and 5.x.
+        # An unknown key is simply an unset variable, so set -u would catch it
+        # on the next line anyway -- but as "!ref: unbound variable", naming
+        # neither the key nor the table row it came from. This says which.
+        # Fatal only because create_course() assigns the result; see there.
+        if [ -z "${!ref:-}" ]; then
+            echo "seed.sh: unknown ${map} key '${key}' in the course table" >&2
+            exit 1
+        fi
+
         out="${out:+$out }${!ref}"
     done
 
@@ -119,6 +139,7 @@ json_string_ids() {
 
 create_course() {
     local title="$1" category="$2" providers="$3" instructors="$4" price="$5" starts="$6" excerpt="$7" content="$8" id
+    local provider_ids instructor_ids
 
     id=$(wp post create --post_type=cd_course --post_title="$title" \
         --post_excerpt="$excerpt" --post_content="$content" \
@@ -134,8 +155,19 @@ create_course() {
     # admin-authored data -- otherwise an indexer built against the fixtures
     # would work by coincidence on seeded data and silently drop every admin
     # edit.
-    wp post meta update "$id" cd_course_providers "$(json_string_ids "$(ids_from PROVIDER "$providers")")" --format=json > /dev/null
-    wp post meta update "$id" cd_course_instructors "$(json_string_ids "$(ids_from INSTRUCTOR "$instructors")")" --format=json > /dev/null
+    # Resolved into variables first, deliberately. Nested inside the `wp`
+    # arguments as "$(json_string_ids "$(ids_from PROVIDER ...)")", a failing
+    # ids_from -- an unknown key, caught by set -u -- kills only its own
+    # subshell: the enclosing `wp post meta update` still runs, storing an
+    # empty [] and leaving a course silently unlinked from its provider. As
+    # plain assignments the failure propagates and set -e stops the seed.
+    # Separate `local` declaration above for the same reason: `local x=$(...)`
+    # reports local's own exit status, masking the substitution's.
+    provider_ids=$(ids_from PROVIDER "$providers")
+    instructor_ids=$(ids_from INSTRUCTOR "$instructors")
+
+    wp post meta update "$id" cd_course_providers "$(json_string_ids "$provider_ids")" --format=json > /dev/null
+    wp post meta update "$id" cd_course_instructors "$(json_string_ids "$instructor_ids")" --format=json > /dev/null
     wp post meta update "$id" cd_course_price "$price" > /dev/null
 
     wp post meta update "$id" _cd_course_providers field_cd_course_providers > /dev/null
