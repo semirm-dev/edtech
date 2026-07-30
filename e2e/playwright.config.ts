@@ -35,7 +35,7 @@ export default defineConfig({
 			// JavaScript enabled -- the keyboard combobox only exists
 			// once course-discovery.js has run.
 			name: 'js-enabled',
-			testMatch: ['keyboard.spec.ts'],
+			testMatch: ['keyboard.spec.ts', 'enhancement.spec.ts'],
 			use: { ...devices['Desktop Chrome'] },
 		},
 		{

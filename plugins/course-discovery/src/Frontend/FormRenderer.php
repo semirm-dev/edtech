@@ -12,37 +12,117 @@ use CourseDiscovery\Domain\SortOrder;
 use CourseDiscovery\Filter\FilterRegistry;
 
 /**
- * Renders the filter form.
+ * Renders the form's controls -- not the form.
  *
- * A real `<form method="get">` with a submit button, so every feature works
- * with JavaScript disabled; a progressive-enhancement script may layer on
- * top later, but nothing here depends on it. Every focusable input carries
- * a `<label for="...">` for screen readers; hidden inputs deliberately have
- * no `id` since they're never focusable.
+ * Shortcode owns the `<form method="get">` element itself, because it is also
+ * the layout grid: the hero, the facet panel and the sort control sit in
+ * different grid areas and all three must submit together. This class renders
+ * those three regions independently (renderHero(), renderFilters(),
+ * renderSortControl()) for Shortcode to place.
+ *
+ * Every control is a plain form control that works with JavaScript disabled:
+ * the facets are `<select multiple>`/checkboxes applied by a submit button,
+ * and sort is a real `<select>` in the form. course-discovery.js does layer
+ * on top of two of them -- it upgrades each `<select multiple>` to an ARIA
+ * combobox and auto-submits on sort change -- so the markup here carries what
+ * that script needs to hook onto (`data-cd-sort`, the `<label>` id
+ * renderSelectMultiple() documents). None of it is load-bearing: with the
+ * script absent, every control still submits the same values.
+ *
+ * Every focusable input carries a `<label for="...">` for screen readers;
+ * hidden inputs deliberately have no `id` since they're never focusable.
  */
 final class FormRenderer
 {
-    public function render(FilterRegistry $registry, SearchCriteria $criteria): string
+    public function __construct(private readonly SearchUrls $urls)
     {
-        $html = '<form method="get" class="cd-search-form">';
+    }
+
+    /**
+     * The hero search region: the free-text field and the primary submit.
+     *
+     * Separate from renderFilters() because Shortcode places the two in
+     * different grid areas -- the hero spans the full width above both
+     * columns. Preserved params ride along here so they sit inside the form
+     * exactly once -- they have no visual position of their own, so they
+     * belong here as hidden state.
+     */
+    public function renderHero(FilterRegistry $registry, SearchCriteria $criteria): string
+    {
+        $keyword = $this->keywordFilter($registry);
+
+        $html = '<div class="cd-search-hero">';
+
+        if ($keyword !== null) {
+            $html .= $this->renderText($keyword, $criteria);
+        }
+
+        $html .= '<button type="submit" class="cd-search-submit">'
+            . esc_html__('Search', 'course-discovery') . '</button>';
+        $html .= '</div>';
+        $html .= $this->renderPreservedParams($registry);
+
+        return $html;
+    }
+
+    /**
+     * The facet panel: every filter except the one that owns the free-text
+     * term, wrapped in a <details> so it can collapse on a narrow viewport.
+     *
+     * $activeCount drives the summary's "(N)" and is supplied by
+     * ActiveFiltersRenderer::activeCount(), so the panel header and the
+     * chips can never disagree about what counts as applied.
+     */
+    public function renderFilters(FilterRegistry $registry, SearchCriteria $criteria, int $activeCount = 0): string
+    {
+        $html = '<details class="cd-filters" open>';
+        $html .= '<summary class="cd-filters-summary">'
+            . esc_html($this->filtersSummary($activeCount)) . '</summary>';
+        $html .= '<div class="cd-filters-body">';
 
         foreach ($registry->all() as $filter) {
+            if ($filter->key()->queryParam() === SearchCriteria::PARAM_TERM) {
+                continue;
+            }
+
             $html .= $this->renderFieldset($filter, $criteria);
         }
 
-        $html .= $this->renderSortState($criteria);
-        $html .= $this->renderPreservedParams($registry);
-
         $html .= '<div class="cd-search-actions">';
-        $html .= '<button type="submit" class="cd-search-submit">'
-            . esc_html__('Search', 'course-discovery') . '</button>';
-        $html .= ' <a class="cd-clear-filters" href="' . esc_url($this->clearFiltersUrl($registry)) . '">'
-            . esc_html__('Clear filters', 'course-discovery') . '</a>';
+        $html .= '<button type="submit" class="cd-apply-filters">'
+            . esc_html__('Apply filters', 'course-discovery') . '</button>';
         $html .= '</div>';
-
-        $html .= '</form>';
+        $html .= '</div>';
+        $html .= '</details>';
 
         return $html;
+    }
+
+    private function filtersSummary(int $activeCount): string
+    {
+        if ($activeCount < 1) {
+            return __('Filters', 'course-discovery');
+        }
+
+        return sprintf(
+            /* translators: %s: number of applied filters, already localised. */
+            __('Filters (%s)', 'course-discovery'),
+            number_format_i18n($activeCount)
+        );
+    }
+
+    /**
+     * The filter that owns the free-text term, or null when none is
+     * registered.
+     *
+     * Matched on the key rather than on FilterInputType::Text so a
+     * third-party text filter registered via
+     * course_discovery/register_filters lands in the facet panel with the
+     * others instead of silently taking over the hero search field.
+     */
+    private function keywordFilter(FilterRegistry $registry): ?Filter
+    {
+        return $registry->get(SearchCriteria::PARAM_TERM);
     }
 
     private function renderFieldset(Filter $filter, SearchCriteria $criteria): string
@@ -146,13 +226,20 @@ final class FormRenderer
          * lets the JS set aria-labelledby="<labelId> <triggerId>" so the name
          * becomes "<field label>, <current value>" instead of just the value.
          * The id is inert with no JS running; `<label for>` is kept too.
+         *
+         * Visually hidden, not removed: the enclosing <fieldset>'s <legend>
+         * already shows this exact text, so on screen the two were the same
+         * word printed twice. The element has to stay in the DOM for the
+         * aria-labelledby above to have anything to point at, and
+         * .cd-visually-hidden keeps it available to assistive technology --
+         * which is the only consumer it ever had.
          */
         $labelId = $id . '-label';
 
         [$describedBy, $description] = $this->renderFilterDescription($id, $filter->description(), 'span');
 
-        $html = '<label id="' . esc_attr($labelId) . '" for="' . esc_attr($id) . '">'
-            . esc_html($filter->label()) . '</label> ';
+        $html = '<label class="cd-visually-hidden" id="' . esc_attr($labelId) . '" for="'
+            . esc_attr($id) . '">' . esc_html($filter->label()) . '</label> ';
         $html .= '<select multiple id="' . esc_attr($id) . '" name="' . esc_attr($key) . '[]" size="'
             . esc_attr((string) $this->selectSize($options)) . '"' . $describedBy . '>';
 
@@ -174,45 +261,55 @@ final class FormRenderer
     }
 
     /**
-     * Preserves a non-default sort across a form submit.
+     * The sort control.
      *
-     * No-JS has no visible sort control, but a visitor can still arrive via
-     * `?sort=price_asc` (e.g. a bookmarked URL). Without this, submitting the
-     * form replaces the entire query string and silently resets the sort to
-     * the default. Only emitted when the sort differs from SortOrder::Soonest.
+     * A real <select> inside the form, so with JavaScript off it applies on
+     * the next submit like any other field. course-discovery.js adds a
+     * change listener scoped to this element -- see its own comment for why
+     * the listener must not sit on the form.
+     *
+     * This replaces the hidden input that used to preserve a non-default
+     * sort across a submit: the select now carries `sort` on every request,
+     * so a hidden field would be a duplicate of the same name.
      */
-    private function renderSortState(SearchCriteria $criteria): string
+    public function renderSortControl(SearchCriteria $criteria): string
     {
-        $sort = $criteria->sort;
+        $id = 'cd-sort';
 
-        if ($sort === SortOrder::Soonest) {
-            return '';
+        $html = '<div class="cd-sort">';
+        $html .= '<label for="' . esc_attr($id) . '">'
+            . esc_html__('Sort by', 'course-discovery') . '</label> ';
+        $html .= '<select id="' . esc_attr($id) . '" name="'
+            . esc_attr(SearchCriteria::PARAM_SORT) . '" data-cd-sort>';
+
+        foreach (SortOrder::cases() as $sort) {
+            $selected = $sort === $criteria->sort ? ' selected' : '';
+            $html .= '<option value="' . esc_attr($sort->value) . '"' . $selected . '>'
+                . esc_html($this->sortLabel($sort)) . '</option>';
         }
 
-        return '<input type="hidden" name="' . esc_attr(SearchCriteria::PARAM_SORT) . '" value="'
-            . esc_attr($sort->value) . '" />';
+        $html .= '</select>';
+        $html .= '</div>';
+
+        return $html;
     }
 
     /**
-     * The keys SearchCriteria and the registry already model explicitly:
-     * anything else present in the current request (e.g. `page_id` on a
-     * plain-permalinks site) is "non-filter" state the form must not drop.
+     * Human labels for SortOrder.
      *
-     * @return list<string>
+     * They live here rather than on the enum because src/Domain/ must
+     * contain no WordPress and __() is WordPress -- DomainPurityTest
+     * enforces it. A match on the enum (not a map keyed by ->value) means a
+     * new case is a compile-time error here rather than a silently
+     * unlabelled option.
      */
-    private function knownQueryKeys(FilterRegistry $registry): array
+    private function sortLabel(SortOrder $sort): string
     {
-        $keys = [
-            SearchCriteria::PARAM_TERM,
-            SearchCriteria::PARAM_SORT,
-            SearchCriteria::PARAM_PAGE,
-        ];
-
-        foreach ($registry->keys() as $key) {
-            $keys[] = $key->queryParam();
-        }
-
-        return $keys;
+        return match ($sort) {
+            SortOrder::Soonest => __('Starting soonest', 'course-discovery'),
+            SortOrder::PriceAscending => __('Price: low to high', 'course-discovery'),
+            SortOrder::Title => __('Title A–Z', 'course-discovery'),
+        };
     }
 
     /**
@@ -224,7 +321,7 @@ final class FormRenderer
      */
     private function renderPreservedParams(FilterRegistry $registry): string
     {
-        $known = $this->knownQueryKeys($registry);
+        $known = $this->urls->knownKeys($registry);
 
         /** @var array<string, mixed> $params */
         $params = wp_unslash($_GET);
@@ -269,10 +366,5 @@ final class FormRenderer
         }
 
         return $strings;
-    }
-
-    private function clearFiltersUrl(FilterRegistry $registry): string
-    {
-        return remove_query_arg($this->knownQueryKeys($registry));
     }
 }

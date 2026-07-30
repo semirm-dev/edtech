@@ -12,13 +12,29 @@ use CourseDiscovery\Domain\SearchResult;
 /**
  * Renders the results list, its empty state, and pagination.
  *
- * The outer wrapper carries `aria-live="polite"` and `aria-atomic="true"` so
- * a screen reader announces the new result count whenever this markup is
- * swapped in. The empty state is an explicit paragraph, not an absence of
- * markup, so "no results" is itself announced rather than looking broken.
+ * The count is rendered separately by renderCount() so Shortcode can place
+ * it in the results toolbar beside the sort control. The empty state is an
+ * explicit paragraph, not an absence of markup, so "no results" is itself
+ * announced rather than looking broken.
  */
 final class ResultsRenderer
 {
+    /**
+     * The result count, as its own live region.
+     *
+     * aria-live sits on this paragraph rather than on the results wrapper:
+     * the count is the thing that changes and is worth announcing, and
+     * aria-atomic on the wrapper would make a screen reader re-read every
+     * result in the list. Nothing swaps results client-side today (there is
+     * no fetch/XHR in course-discovery.js), so this is future-proofing that
+     * costs nothing.
+     */
+    public function renderCount(SearchResult $result): string
+    {
+        return '<p class="cd-results-count" aria-live="polite" aria-atomic="true">'
+            . esc_html($this->countMessage($result->total)) . '</p>';
+    }
+
     /**
      * $baseUrl is the URL pagination links are built against via
      * add_query_arg($params, $baseUrl) -- never the implicit-base form, which
@@ -30,8 +46,7 @@ final class ResultsRenderer
     {
         $total = $result->total;
 
-        $html = '<div class="cd-results" aria-live="polite" aria-atomic="true">';
-        $html .= '<p class="cd-results-count">' . esc_html($this->countMessage($total)) . '</p>';
+        $html = '<div class="cd-results">';
 
         if ($total === 0) {
             $html .= '<p class="cd-empty-state">' . esc_html__(
@@ -119,12 +134,47 @@ final class ResultsRenderer
             return '';
         }
 
-        $currentPage = $result->pagination->page;
+        // Clamped because render()'s out-of-range branch calls this with a
+        // page past the end (a forged ?cd_paged=9999): unclamped, Prev pointed
+        // at 9998, itself out of range, so the only way out of a forged page
+        // led to another one. Clamping to the last real page makes Prev the
+        // last page of results and drops Next, which is where the visitor
+        // wanted to be. pageWindow() already discards pages > $totalPages.
+        $currentPage = min($result->pagination->page, $totalPages);
 
         $html = '<nav class="cd-pagination" aria-label="' . esc_attr__('Pagination', 'course-discovery') . '">';
 
-        for ($page = 1; $page <= $totalPages; $page++) {
+        if ($currentPage > 1) {
+            $html .= $this->renderRelativeLink(
+                $criteria,
+                $currentPage - 1,
+                $baseUrl,
+                'prev',
+                __('Previous page', 'course-discovery'),
+                __('‹ Prev', 'course-discovery')
+            );
+        }
+
+        $previous = null;
+
+        foreach ($this->pageWindow($currentPage, $totalPages) as $page) {
+            if ($previous !== null && $page - $previous > 1) {
+                $html .= '<span class="cd-pagination-gap" aria-hidden="true">&hellip;</span>';
+            }
+
             $html .= $this->renderPageLink($criteria, $page, $currentPage, $baseUrl);
+            $previous = $page;
+        }
+
+        if ($currentPage < $totalPages) {
+            $html .= $this->renderRelativeLink(
+                $criteria,
+                $currentPage + 1,
+                $baseUrl,
+                'next',
+                __('Next page', 'course-discovery'),
+                __('Next ›', 'course-discovery')
+            );
         }
 
         $html .= '</nav>';
@@ -132,17 +182,57 @@ final class ResultsRenderer
         return $html;
     }
 
-    private function renderPageLink(SearchCriteria $criteria, int $page, int $currentPage, string $baseUrl): string
+    /**
+     * The pages worth linking: the first, the last, the current one and its
+     * immediate neighbours -- at most five, however many pages exist. The
+     * previous behaviour linked every page, so a 400-course result set
+     * emitted 40 links.
+     *
+     * Returned ascending and deduplicated, which is what lets the caller
+     * detect a jump between consecutive entries and insert one ellipsis
+     * there.
+     *
+     * @return list<int>
+     */
+    private function pageWindow(int $currentPage, int $totalPages): array
     {
-        $params = $criteria->toQueryParams();
+        $pages = [];
 
-        if ($page > 1) {
-            $params[SearchCriteria::PARAM_PAGE] = (string) $page;
-        } else {
-            unset($params[SearchCriteria::PARAM_PAGE]);
+        foreach ([1, $currentPage - 1, $currentPage, $currentPage + 1, $totalPages] as $page) {
+            if ($page >= 1 && $page <= $totalPages) {
+                $pages[$page] = true;
+            }
         }
 
-        $url = add_query_arg($params, $baseUrl);
+        $window = array_keys($pages);
+        sort($window);
+
+        return $window;
+    }
+
+    /**
+     * Prev/Next. Kept apart from renderPageLink() because these carry a rel
+     * attribute and a directional accessible name, and are never the
+     * current page.
+     */
+    private function renderRelativeLink(
+        SearchCriteria $criteria,
+        int $page,
+        string $baseUrl,
+        string $rel,
+        string $accessibleName,
+        string $visibleLabel
+    ): string {
+        $url = add_query_arg($this->pageParams($criteria, $page), $baseUrl);
+
+        return '<a class="cd-pagination-' . esc_attr($rel) . '" href="' . esc_url($url)
+            . '" rel="' . esc_attr($rel) . '" aria-label="' . esc_attr($accessibleName) . '">'
+            . esc_html($visibleLabel) . '</a>';
+    }
+
+    private function renderPageLink(SearchCriteria $criteria, int $page, int $currentPage, string $baseUrl): string
+    {
+        $url = add_query_arg($this->pageParams($criteria, $page), $baseUrl);
         $isCurrent = $page === $currentPage;
 
         $label = sprintf(
@@ -153,5 +243,24 @@ final class ResultsRenderer
 
         return '<a href="' . esc_url($url) . '" aria-label="' . esc_attr($label) . '"'
             . ($isCurrent ? ' aria-current="page"' : '') . '>' . esc_html((string) $page) . '</a>';
+    }
+
+    /**
+     * Shared by every link in the nav so the "page 1 omits the parameter"
+     * rule lives in exactly one place.
+     *
+     * @return array<string, string|list<string>>
+     */
+    private function pageParams(SearchCriteria $criteria, int $page): array
+    {
+        $params = $criteria->toQueryParams();
+
+        if ($page > 1) {
+            $params[SearchCriteria::PARAM_PAGE] = (string) $page;
+        } else {
+            unset($params[SearchCriteria::PARAM_PAGE]);
+        }
+
+        return $params;
     }
 }

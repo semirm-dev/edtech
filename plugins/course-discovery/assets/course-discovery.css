@@ -1,91 +1,586 @@
 /*
- * Course Discovery -- layout only, no visual opinion.
+ * Course Discovery -- the Find Courses UI.
  *
- * A responsive two-column grid (filters | results) that collapses to a
- * single column on narrow viewports, plus a visible focus indicator.
+ * Tokens are declared once on .cd-discovery and every rule below reads them,
+ * so no rule writes a bare colour or size. Each token reads a block theme's
+ * preset with the plugin's own value as a fallback, so the UI looks native
+ * where a theme defines presets (Twenty Twenty-Five does) and still looks
+ * deliberate where it does not.
+ *
+ * On the palette: of Twenty Twenty-Five's six accents only accent-3 has
+ * text-grade contrast against base, so it is the sole interactive colour.
+ * accent-1 is a yellow used only as a chip background behind --cd-text --
+ * never as a text or border colour. accent-6 is the theme's own border
+ * token.
+ *
+ * --cd-text and --cd-bg are declared as a PAIR on .cd-discovery: the
+ * wrapper paints both, because several descendants (.cd-results-count,
+ * .cd-sort label, .cd-active-filters-heading, .cd-clear-filters,
+ * .cd-pagination-gap) declare a colour and no background of their own. With
+ * only the colour set they would paint onto the host theme's background
+ * instead -- in OS dark mode on a theme that defines no presets, that is
+ * #f2f2f2 on white, about 1.1:1.
+ *
  * The focus style is an accessibility requirement, not decoration: it is
  * what makes keyboard-only navigation (the no-JS baseline this plugin is
- * built on) usable at all.
+ * built on) usable at all. It is scoped to .cd-discovery rather than left
+ * global, so a plugin stylesheet does not restyle focus for the whole site.
  */
 
+/* ------------------------------------------------------------------ *
+ * Tokens and page grid
+ * ------------------------------------------------------------------ */
+
 .cd-discovery {
+	--cd-text: var(--wp--preset--color--contrast, #111111);
+	--cd-text-muted: var(--wp--preset--color--accent-4, #686868);
+	--cd-bg: var(--wp--preset--color--base, #ffffff);
+	--cd-surface: var(--wp--preset--color--accent-5, #fbfaf3);
+	--cd-accent: var(--wp--preset--color--accent-3, #503aa8);
+	--cd-highlight: var(--wp--preset--color--accent-1, #ffee58);
+	/*
+	 * The no-preset fallback mixes --cd-text, NOT currentColor: a var()
+	 * substitution keeps `currentColor` as a keyword until the property that
+	 * uses it is resolved, so a rule that overrides its own `color` (
+	 * .cd-empty-state sets --cd-text-muted) would otherwise get a fainter
+	 * border than every other bordered box on the page.
+	 */
+	--cd-border: var(--wp--preset--color--accent-6, color-mix(in srgb, var(--cd-text) 20%, transparent));
+
+	--cd-space-xs: var(--wp--preset--spacing--20, 0.5rem);
+	--cd-space-sm: var(--wp--preset--spacing--30, 0.75rem);
+	--cd-space-md: var(--wp--preset--spacing--40, 1.25rem);
+	--cd-space-lg: var(--wp--preset--spacing--50, 2rem);
+
+	--cd-font-sm: var(--wp--preset--font-size--small, 0.875rem);
+	--cd-font-md: var(--wp--preset--font-size--medium, 1rem);
+	--cd-font-lg: var(--wp--preset--font-size--large, 1.38rem);
+
+	--cd-radius: 6px;
+	--cd-radius-pill: 999px;
+
+	color: var(--cd-text);
+	background: var(--cd-bg);
 	display: grid;
+	gap: var(--cd-space-md);
 	grid-template-columns: 1fr;
-	gap: 1.5rem;
+	grid-template-areas:
+		'hero'
+		'chips'
+		'filters'
+		'results';
 	align-items: start;
+}
+
+/*
+ * ActiveFiltersRenderer emits nothing at all when the request carries no
+ * filter state, and an area declared for an element that is not there still
+ * costs a row gap. Dropping the row is the only way to collapse that space
+ * -- `gap` applies between rows, empty or not.
+ */
+.cd-discovery:not(:has(.cd-active-filters)) {
+	grid-template-areas:
+		'hero'
+		'filters'
+		'results';
+}
+
+/*
+ * Only the FALLBACKS flip here. Where a theme defines a preset it still
+ * wins in both schemes, which is the point of inheriting them.
+ */
+@media (prefers-color-scheme: dark) {
+	.cd-discovery {
+		--cd-text: var(--wp--preset--color--contrast, #f2f2f2);
+		--cd-text-muted: var(--wp--preset--color--accent-4, #a8a8a8);
+		--cd-bg: var(--wp--preset--color--base, #111111);
+		--cd-surface: var(--wp--preset--color--accent-5, #1c1c1c);
+		--cd-accent: var(--wp--preset--color--accent-3, #b9a7ff);
+
+		/*
+		 * --cd-highlight backs .cd-chip's background with --cd-text as its
+		 * foreground (see .cd-chip / .cd-chip-remove / .cd-chip:hover below).
+		 * Invariant: any colour token paired against a token redeclared in
+		 * this block must itself be redeclared here, or the pairing breaks
+		 * in one scheme -- this fallback (~8.8:1 against --cd-text's dark
+		 * fallback #f2f2f2) is what keeps that pairing readable here.
+		 */
+		--cd-highlight: var(--wp--preset--color--accent-1, #4a4420);
+	}
 }
 
 @media (min-width: 48rem) {
 	.cd-discovery {
 		grid-template-columns: 18rem 1fr;
+		grid-template-areas:
+			'hero    hero'
+			'chips   chips'
+			'filters results';
+		column-gap: var(--cd-space-lg);
+	}
+
+	/*
+	 * Must live inside this query: the one-column no-chips rule above has the
+	 * same specificity, so a copy outside it would out-cascade the two-column
+	 * template here purely on source order.
+	 */
+	.cd-discovery:not(:has(.cd-active-filters)) {
+		grid-template-areas:
+			'hero    hero'
+			'filters results';
 	}
 }
 
-.cd-search-form {
+.cd-search-hero {
+	grid-area: hero;
+}
+
+.cd-active-filters {
+	grid-area: chips;
+}
+
+.cd-filters {
+	grid-area: filters;
+}
+
+.cd-results-region {
+	grid-area: results;
+}
+
+/* ------------------------------------------------------------------ *
+ * Hero search
+ * ------------------------------------------------------------------ */
+
+.cd-search-hero {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--cd-space-xs);
+	padding: var(--cd-space-sm);
+	background: var(--cd-surface);
+	border: 1px solid var(--cd-border);
+	border-radius: var(--cd-radius);
+}
+
+.cd-search-hero label {
+	flex: 0 0 auto;
+	font-size: var(--cd-font-sm);
+	font-weight: 600;
+}
+
+.cd-search-hero input[type='search'] {
+	flex: 1 1 12rem;
+	min-width: 0;
+	padding: 0.6rem 0.75rem;
+	font: inherit;
+	font-size: var(--cd-font-md);
+	color: var(--cd-text);
+	background: var(--cd-bg);
+	border: 1px solid var(--cd-border);
+	border-radius: var(--cd-radius);
+}
+
+.cd-filter-description {
+	flex: 1 0 100%;
+	margin: 0;
+	font-size: var(--cd-font-sm);
+	color: var(--cd-text-muted);
+}
+
+/*
+ * In the hero the description must not split the field from its submit.
+ * `flex: 1 0 100%` forces a line break wherever the description sits, and
+ * renderHero() emits it BETWEEN the input and the Search button --
+ * KeywordFilter::description() is non-null, so that would be the default
+ * appearance. Ordering it last puts the break below the row instead of
+ * through it, and leaves DOM order alone: the input keeps its
+ * aria-describedby target as its immediate next sibling, and tab order
+ * (input, then Search) is unaffected.
+ */
+.cd-search-hero .cd-filter-description {
+	order: 1;
+}
+
+/* ------------------------------------------------------------------ *
+ * Buttons
+ * ------------------------------------------------------------------ */
+
+.cd-search-submit,
+.cd-apply-filters {
+	padding: 0.6rem 1.1rem;
+	font: inherit;
+	font-size: var(--cd-font-md);
+	font-weight: 600;
+	color: var(--cd-bg);
+	cursor: pointer;
+	background: var(--cd-accent);
+	border: 1px solid var(--cd-accent);
+	border-radius: var(--cd-radius);
+}
+
+.cd-apply-filters {
+	width: 100%;
+}
+
+.cd-search-submit:hover,
+.cd-apply-filters:hover {
+	background: var(--cd-text);
+	border-color: var(--cd-text);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.cd-search-submit,
+	.cd-apply-filters,
+	.cd-chip,
+	.cd-result,
+	.cd-pagination a {
+		transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+	}
+}
+
+/* ------------------------------------------------------------------ *
+ * Applied-filter chips
+ * ------------------------------------------------------------------ */
+
+.cd-active-filters {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--cd-space-xs);
+}
+
+.cd-active-filters-heading {
+	margin: 0;
+	font-size: var(--cd-font-sm);
+	font-weight: 600;
+	color: var(--cd-text-muted);
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+}
+
+.cd-active-filters-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--cd-space-xs);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.cd-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.25rem 0.7rem;
+	font-size: var(--cd-font-sm);
+	color: var(--cd-text);
+	text-decoration: none;
+	background: var(--cd-highlight);
+	border: 1px solid transparent;
+	border-radius: var(--cd-radius-pill);
+}
+
+.cd-chip:hover {
+	border-color: var(--cd-text);
+}
+
+.cd-chip-remove {
+	font-weight: 700;
+	line-height: 1;
+}
+
+.cd-clear-filters {
+	font-size: var(--cd-font-sm);
+	color: var(--cd-accent);
+}
+
+/* ------------------------------------------------------------------ *
+ * Filter panel
+ * ------------------------------------------------------------------ */
+
+.cd-filters {
+	padding: var(--cd-space-sm);
+	background: var(--cd-surface);
+	border: 1px solid var(--cd-border);
+	border-radius: var(--cd-radius);
+}
+
+/*
+ * The disclosure marker stays visible at every width. It would be tempting
+ * to hide it above 48rem, where the panel is always open -- but <summary>
+ * still toggles on click, so hiding the affordance would leave a heading
+ * that mysteriously collapses.
+ */
+.cd-filters-summary {
+	padding: 0.25rem 0;
+	font-size: var(--cd-font-md);
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.cd-filters-body {
 	display: flex;
 	flex-direction: column;
-	gap: 1rem;
+	gap: var(--cd-space-md);
+	margin-top: var(--cd-space-sm);
 }
 
 .cd-filter {
-	padding: 0.75rem 1rem;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.cd-filter legend {
+	padding: 0;
+	font-size: var(--cd-font-sm);
+	font-weight: 600;
+	color: var(--cd-text-muted);
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
 }
 
 .cd-filter-options {
 	display: flex;
 	flex-direction: column;
 	gap: 0.35rem;
+	margin-top: var(--cd-space-xs);
+}
+
+.cd-checkbox {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	font-size: var(--cd-font-sm);
+}
+
+/* The unenhanced multi-select, i.e. what a no-JS visitor actually uses. */
+.cd-filter select[multiple] {
+	width: 100%;
+	padding: 0.25rem;
+	font: inherit;
+	font-size: var(--cd-font-sm);
+	color: var(--cd-text);
+	background: var(--cd-bg);
+	border: 1px solid var(--cd-border);
+	border-radius: var(--cd-radius);
 }
 
 .cd-search-actions {
 	display: flex;
+}
+
+/* ------------------------------------------------------------------ *
+ * Results toolbar
+ * ------------------------------------------------------------------ */
+
+.cd-results-region {
+	display: flex;
+	flex-direction: column;
+	gap: var(--cd-space-md);
+	min-width: 0;
+}
+
+.cd-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--cd-space-xs);
+	padding-bottom: var(--cd-space-xs);
+	border-bottom: 1px solid var(--cd-border);
+}
+
+.cd-results-count {
+	margin: 0;
+	font-size: var(--cd-font-md);
+	font-weight: 600;
+}
+
+.cd-sort {
+	display: flex;
 	align-items: center;
-	gap: 1rem;
+	gap: 0.5rem;
+}
+
+.cd-sort label {
+	font-size: var(--cd-font-sm);
+	color: var(--cd-text-muted);
+}
+
+.cd-sort select {
+	padding: 0.3rem 0.5rem;
+	font: inherit;
+	font-size: var(--cd-font-sm);
+	color: var(--cd-text);
+	background: var(--cd-bg);
+	border: 1px solid var(--cd-border);
+	border-radius: var(--cd-radius);
+}
+
+/* ------------------------------------------------------------------ *
+ * Results
+ * ------------------------------------------------------------------ */
+
+.cd-results {
+	min-width: 0;
 }
 
 .cd-results-list {
-	list-style: none;
-	margin: 0;
-	padding: 0;
 	display: flex;
 	flex-direction: column;
-	gap: 1.25rem;
+	gap: var(--cd-space-sm);
+	margin: 0;
+	padding: 0;
+	list-style: none;
 }
 
 .cd-result {
-	padding-bottom: 1rem;
+	padding: var(--cd-space-md);
+	background: var(--cd-bg);
+	border: 1px solid var(--cd-border);
+	border-radius: var(--cd-radius);
 }
+
+.cd-result:hover {
+	border-color: var(--cd-text);
+}
+
+.cd-result-title {
+	margin: 0 0 var(--cd-space-xs);
+	font-size: var(--cd-font-lg);
+	line-height: 1.25;
+}
+
+.cd-result-title a {
+	color: var(--cd-text);
+	text-decoration: none;
+}
+
+.cd-result-title a:hover {
+	color: var(--cd-accent);
+	text-decoration: underline;
+}
+
+.cd-result-description {
+	margin: 0 0 var(--cd-space-xs);
+	color: var(--cd-text-muted);
+}
+
+.cd-result-price {
+	margin: 0;
+	font-weight: 700;
+}
+
+.cd-result-start {
+	margin: 0;
+	font-size: var(--cd-font-sm);
+	color: var(--cd-text-muted);
+}
+
+/*
+ * The one rule that overrides its own `color`, so the one rule that cannot
+ * read --cd-border: a currentColor-based border resolves against the MUTED
+ * colour here and comes out visibly fainter than every other box on the page.
+ * Twenty Twenty-Five's accent-6 preset -- which --cd-border prefers over its
+ * own fallback -- is literally
+ * `color-mix(in srgb, currentColor 20%, transparent)`, so no change to the
+ * fallback can fix this; the mix has to name --cd-text explicitly. Measured
+ * against that theme: 0.41 grey via the token, 0.07 (= --cd-text) via this.
+ */
+.cd-empty-state {
+	margin: 0;
+	padding: var(--cd-space-lg);
+	color: var(--cd-text-muted);
+	text-align: center;
+	background: var(--cd-surface);
+	border: 1px dashed color-mix(in srgb, var(--cd-text) 20%, transparent);
+	border-radius: var(--cd-radius);
+}
+
+/* ------------------------------------------------------------------ *
+ * Pagination
+ * ------------------------------------------------------------------ */
 
 .cd-pagination {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.5rem;
-	margin-top: 1rem;
+	align-items: center;
+	gap: var(--cd-space-xs);
+	margin-top: var(--cd-space-md);
 }
 
-/* Accessibility requirement: every focusable element must show a visible
- * focus indicator, since this UI must be fully operable by keyboard alone. */
-:focus-visible {
-	outline: 2px solid currentColor;
+.cd-pagination a {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 2.25rem;
+	padding: 0.35rem 0.6rem;
+	font-size: var(--cd-font-sm);
+	color: var(--cd-text);
+	text-decoration: none;
+	background: var(--cd-bg);
+	border: 1px solid var(--cd-border);
+	border-radius: var(--cd-radius);
+}
+
+.cd-pagination a:hover {
+	border-color: var(--cd-text);
+}
+
+.cd-pagination a[aria-current='page'] {
+	font-weight: 700;
+	color: var(--cd-bg);
+	background: var(--cd-accent);
+	border-color: var(--cd-accent);
+}
+
+.cd-pagination-prev,
+.cd-pagination-next {
+	font-weight: 600;
+}
+
+.cd-pagination-gap {
+	padding: 0 0.15rem;
+	color: var(--cd-text-muted);
+}
+
+/* ------------------------------------------------------------------ *
+ * Accessibility and the JS combobox upgrade
+ * ------------------------------------------------------------------ */
+
+/* Every focusable element must show a visible focus indicator, since this
+ * UI must be fully operable by keyboard alone. */
+.cd-discovery :focus-visible {
+	outline: 2px solid var(--cd-accent);
 	outline-offset: 2px;
 }
 
 /*
- * The JS-only combobox upgrade. The underlying <select multiple> stays
- * in the DOM as the source of truth (see course-discovery.js) but is hidden
+ * The JS-only combobox upgrade. The underlying <select multiple> stays in
+ * the DOM as the source of truth (see course-discovery.js) but is hidden
  * both visually and from assistive tech, which now reads the .cd-combobox
  * widget built next to it instead.
  */
+/*
+ * !important because a utility class has to beat whatever component rule
+ * happens to be more specific: `.cd-filter select[multiple]` (0-2-1)
+ * out-specifies this selector (0-1-0) on width, padding, border and
+ * background, so without it the hidden native select keeps a full-width box
+ * that only `clip` and `position` suppress -- and any future component rule
+ * would reintroduce the same bug. WordPress core's own .screen-reader-text
+ * does this for the same reason.
+ */
 .cd-visually-hidden {
-	position: absolute;
-	width: 1px;
-	height: 1px;
-	margin: -1px;
-	padding: 0;
-	overflow: hidden;
-	clip: rect(0, 0, 0, 0);
-	white-space: nowrap;
-	border: 0;
+	position: absolute !important;
+	width: 1px !important;
+	height: 1px !important;
+	margin: -1px !important;
+	padding: 0 !important;
+	overflow: hidden !important;
+	white-space: nowrap !important;
+	border: 0 !important;
+	clip: rect(0, 0, 0, 0) !important;
 }
 
 .cd-combobox {
@@ -94,32 +589,48 @@
 
 .cd-combobox-trigger {
 	width: 100%;
+	padding: 0.4rem 0.6rem;
+	font: inherit;
+	font-size: var(--cd-font-sm);
+	color: var(--cd-text);
 	text-align: left;
+	cursor: pointer;
+	background: var(--cd-bg);
+	border: 1px solid var(--cd-border);
+	border-radius: var(--cd-radius);
 }
 
 .cd-combobox-listbox {
 	position: absolute;
-	z-index: 1;
+	z-index: 10;
 	inset-inline-start: 0;
 	width: 100%;
 	max-height: 12rem;
-	overflow-y: auto;
 	margin: 0;
 	padding: 0.25rem 0;
+	overflow-y: auto;
 	list-style: none;
-	background: Canvas;
-	border: 1px solid currentColor;
+	background: var(--cd-bg);
+	border: 1px solid var(--cd-border);
+	border-radius: var(--cd-radius);
+	box-shadow: 0 4px 12px rgb(0 0 0 / 12%);
 }
 
 .cd-combobox-listbox [role='option'] {
 	padding: 0.35rem 0.75rem;
+	font-size: var(--cd-font-sm);
+	cursor: pointer;
+}
+
+.cd-combobox-listbox [role='option']:hover {
+	background: var(--cd-surface);
 }
 
 .cd-combobox-listbox [aria-selected='true'] {
-	font-weight: bold;
+	font-weight: 700;
 }
 
 .cd-combobox-listbox .is-active {
-	outline: 2px solid currentColor;
+	outline: 2px solid var(--cd-accent);
 	outline-offset: -2px;
 }

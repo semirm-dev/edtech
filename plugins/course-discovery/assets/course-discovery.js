@@ -263,4 +263,46 @@
 			}
 		}
 	}
+
+	// ---------------------------------------------------------------------
+	// Sort auto-submit.
+	//
+	// The listener is scoped to the sort <select> itself, NEVER to the form.
+	// A form-level 'change' listener would also fire for every checkbox and
+	// for every combobox option toggle -- toggleOption() dispatches 'change'
+	// on the native <select> on each keypress -- reloading the page in the
+	// middle of a multi-select. With JavaScript off, the select is applied by
+	// the Search button like any other field.
+	// ---------------------------------------------------------------------
+	var sort = root.querySelector('[data-cd-sort]');
+
+	if (sort && sort.form) {
+		sort.addEventListener('change', function () {
+			if (typeof sort.form.requestSubmit === 'function') {
+				sort.form.requestSubmit();
+			} else {
+				sort.form.submit();
+			}
+		});
+	}
+
+	// ---------------------------------------------------------------------
+	// Collapse the filter panel on a narrow viewport, so results are the
+	// first thing on screen rather than pushed below five filter groups.
+	//
+	// This is JavaScript rather than a media query because CSS cannot
+	// toggle the [open] attribute. It is also why the panel is rendered
+	// OPEN: with this file absent or broken, a phone visitor sees expanded
+	// filters -- the previous behaviour -- rather than a panel they cannot
+	// open.
+	// ---------------------------------------------------------------------
+	var filters = root.querySelector('.cd-filters');
+
+	if (filters && typeof window.matchMedia === 'function') {
+		var narrow = window.matchMedia('(max-width: 48rem)');
+
+		if (narrow.matches) {
+			filters.removeAttribute('open');
+		}
+	}
 })();

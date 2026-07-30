@@ -19,6 +19,7 @@ use CourseDiscovery\Filter\LocationFilter;
 use CourseDiscovery\Filter\ProviderFilter;
 use CourseDiscovery\Filter\StartDateFilter;
 use CourseDiscovery\Frontend\FormRenderer;
+use CourseDiscovery\Frontend\SearchUrls;
 use CourseDiscovery\Index\CourseIndexer;
 use CourseDiscovery\Index\Schema;
 use CourseDiscovery\Plugin;
@@ -389,9 +390,10 @@ final class ExampleExtensionTest extends IntegrationTestCase
      * specifically -- it is currently only ever inferred. This builds a
      * registry the same way FilterRegistryTest does (register() called
      * directly, no do_action() involved) and renders it through the exact
-     * same FormRenderer::render($registry, $criteria) call
-     * Shortcode::render() makes, so the instructor fieldset genuinely
-     * reaching the page is asserted directly, not inferred.
+     * same FormRenderer::renderFilters($registry, $criteria) call
+     * Shortcode::render() makes for every non-keyword filter, so the
+     * instructor fieldset genuinely reaching the page is asserted directly,
+     * not inferred.
      */
     public function test_the_instructor_filter_renders_into_the_search_form(): void
     {
@@ -400,7 +402,7 @@ final class ExampleExtensionTest extends IntegrationTestCase
         $registry = new FilterRegistry();
         $registry->register(new InstructorFilter());
 
-        $html = (new FormRenderer())->render($registry, SearchCriteria::empty());
+        $html = (new FormRenderer(new SearchUrls()))->renderFilters($registry, SearchCriteria::empty());
 
         self::assertStringContainsString('<fieldset class="cd-filter cd-filter-instructor">', $html);
         self::assertStringContainsString('<legend>Instructor</legend>', $html);

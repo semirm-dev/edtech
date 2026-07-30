@@ -64,4 +64,21 @@ test.describe('paginating results', () => {
 		await expect(page.locator('.cd-result-title')).toHaveCount(0);
 		await expect(page.locator('.cd-results')).toContainText('out of range');
 	});
+
+	test('prev and next appear only where there is somewhere to go', async ({ page }) => {
+		await page.goto('/find-courses/');
+
+		// Page 1: nowhere back to.
+		await expect(page.getByRole('link', { name: 'Previous page' })).toHaveCount(0);
+
+		const next = page.getByRole('link', { name: 'Next page' });
+		await expect(next).toBeVisible();
+		await next.click();
+
+		await expect(page.getByRole('link', { name: 'Previous page' })).toBeVisible();
+		await expect(page.locator('.cd-pagination a[aria-current="page"]')).toHaveText('2');
+
+		// The seed is two pages, so page 2 is the last one.
+		await expect(page.getByRole('link', { name: 'Next page' })).toHaveCount(0);
+	});
 });

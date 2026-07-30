@@ -14,6 +14,7 @@ use CourseDiscovery\Domain\Filter\FilterValues;
 use CourseDiscovery\Domain\Filter\SearchCriteria;
 use CourseDiscovery\Filter\FilterRegistry;
 use CourseDiscovery\Frontend\FormRenderer;
+use CourseDiscovery\Frontend\SearchUrls;
 use CourseDiscovery\Tests\Integration\IntegrationTestCase;
 
 /**
@@ -66,7 +67,7 @@ final class FormRendererTest extends IntegrationTestCase
             }
         });
 
-        $html = (new FormRenderer())->render($registry, SearchCriteria::empty());
+        $html = (new FormRenderer(new SearchUrls()))->renderFilters($registry, SearchCriteria::empty());
 
         self::assertStringContainsString(
             '<span class="cd-filter-description" id="cd-filter-stub_combo-description">Pick one or more values.</span>',
@@ -120,7 +121,7 @@ final class FormRendererTest extends IntegrationTestCase
             }
         });
 
-        $html = (new FormRenderer())->render($registry, SearchCriteria::empty());
+        $html = (new FormRenderer(new SearchUrls()))->renderFilters($registry, SearchCriteria::empty());
 
         self::assertStringNotContainsString('cd-filter-description', $html);
         self::assertStringNotContainsString('aria-describedby', $html);

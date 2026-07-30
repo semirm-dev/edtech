@@ -12,7 +12,7 @@ const TRIGGER_ID = 'cd-filter-location';
 const LISTBOX_ID = 'cd-filter-location-listbox';
 
 /** Presses Tab repeatedly until the given element id has focus, or fails. */
-async function tabTo(page: Page, targetId: string, maxTabs = 30): Promise<void> {
+async function tabTo(page: Page, targetId: string, maxTabs = 50): Promise<void> {
 	for (let i = 0; i < maxTabs; i++) {
 		const activeId = await page.evaluate(() => document.activeElement?.id ?? '');
 		if (activeId === targetId) {

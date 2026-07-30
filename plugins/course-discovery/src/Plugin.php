@@ -93,8 +93,9 @@ final class Plugin
         add_action('init', static function () use ($container): void {
             (new Frontend\Shortcode(
                 $container->get(Search\SearchService::class),
-                new Frontend\FormRenderer(),
+                new Frontend\FormRenderer(new Frontend\SearchUrls()),
                 new Frontend\ResultsRenderer(),
+                new Frontend\ActiveFiltersRenderer(new Frontend\SearchUrls()),
             ))->register();
         });
 

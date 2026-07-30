@@ -20,6 +20,7 @@ final readonly class Shortcode
         private SearchService $service,
         private FormRenderer $form,
         private ResultsRenderer $results,
+        private ActiveFiltersRenderer $activeFilters,
     ) {
     }
 
@@ -50,9 +51,20 @@ final readonly class Shortcode
         $permalink = get_permalink();
         $baseUrl = $permalink !== false ? $permalink : home_url('/');
 
-        return '<div class="cd-discovery" data-cd-root>'
-            . $this->form->render($this->service->registry, $criteria)
+        $registry = $this->service->registry;
+        $activeCount = $this->activeFilters->activeCount($registry, $criteria);
+
+        return '<form class="cd-discovery cd-search-form" method="get" data-cd-root>'
+            . $this->form->renderHero($registry, $criteria)
+            . $this->activeFilters->render($registry, $criteria, $baseUrl)
+            . $this->form->renderFilters($registry, $criteria, $activeCount)
+            . '<div class="cd-results-region">'
+            . '<div class="cd-toolbar">'
+            . $this->results->renderCount($result)
+            . $this->form->renderSortControl($criteria)
+            . '</div>'
             . $this->results->render($result, $criteria, $baseUrl)
-            . '</div>';
+            . '</div>'
+            . '</form>';
     }
 }

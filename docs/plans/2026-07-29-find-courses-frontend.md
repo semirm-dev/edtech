@@ -444,6 +444,9 @@ In `FormRenderer.php`, add `use CourseDiscovery\Domain\Filter\Filter;` to the im
         $html .= '<button type="submit" class="cd-search-submit">'
             . esc_html__('Search', 'course-discovery') . '</button>';
         $html .= '</div>';
+        // Hidden state-preservation inputs. Both must sit inside the form but
+        // have no visual position, so they ride along here together.
+        $html .= $this->renderSortState($criteria);
         $html .= $this->renderPreservedParams($registry);
 
         return $html;
@@ -475,6 +478,13 @@ In `FormRenderer.php`, add `use CourseDiscovery\Domain\Filter\Filter;` to the im
         $html .= '<div class="cd-search-actions">';
         $html .= '<button type="submit" class="cd-apply-filters">'
             . esc_html__('Apply filters', 'course-discovery') . '</button>';
+        // Stays here only until Task 5, which relocates it next to the chips
+        // it clears. Keeping it for now is what stops
+        // ShortcodeTest::test_clear_filters_link_has_no_known_filter_params
+        // failing in the one commit between deleting render() and building
+        // the chips block.
+        $html .= ' <a class="cd-clear-filters" href="' . esc_url($this->clearFiltersUrl($registry)) . '">'
+            . esc_html__('Clear filters', 'course-discovery') . '</a>';
         $html .= '</div>';
         $html .= '</div>';
         $html .= '</details>';
@@ -510,7 +520,7 @@ In `FormRenderer.php`, add `use CourseDiscovery\Domain\Filter\Filter;` to the im
     }
 ```
 
-`renderSortState()` and its `use CourseDiscovery\Domain\SortOrder;` import stay for now — nothing calls `renderSortState()` any more, so add no call to it. Task 3 deletes it.
+`renderSortState()` and its `use CourseDiscovery\Domain\SortOrder;` import stay untouched, and `renderHero()` above keeps calling it. Task 3 is what deletes both the call and the method, once the visible `<select name="sort">` supersedes them. This task changes **structure only**: every test passing before it must still pass after it, with no exceptions and no PHPStan suppressions.
 
 - [ ] **Step 4: Extract `renderCount()` in `ResultsRenderer`**
 
@@ -763,7 +773,7 @@ In `FormRenderer.php`, add these two methods (keep the existing `use CourseDisco
     }
 ```
 
-Then **delete** `renderSortState()` entirely (its docblock and body).
+Then **delete** `renderSortState()` entirely — its docblock, its body, **and its call in `renderHero()`** (the line `$html .= $this->renderSortState($criteria);`, along with the two-line comment above it that also covers `renderPreservedParams()`; keep that call and reword the comment to describe it alone). The visible select now carries `sort` on every submit, so the hidden input would be a duplicate field of the same name.
 
 - [ ] **Step 4: Add it to the toolbar**
 
@@ -902,13 +912,20 @@ Add the constructor directly above `renderHero()`:
     }
 ```
 
-Then **delete** `FormRenderer`'s own `knownQueryKeys()` and `clearFiltersUrl()` methods, and change `renderPreservedParams()`'s first line from `$known = $this->knownQueryKeys($registry);` to:
+Then **delete** `FormRenderer`'s own `knownQueryKeys()` and `clearFiltersUrl()` methods, and repoint their two callers at the collaborator. In `renderPreservedParams()`:
 
 ```php
         $known = $this->urls->knownKeys($registry);
 ```
 
-`FormRenderer` no longer renders a clear-filters link at all — Task 5 moves it into the chips block. Remove the `.cd-clear-filters` anchor from wherever it still sits (it was in the old `render()`, which Task 2 deleted, so most likely nothing to do here — verify with a grep).
+and in `renderFilters()`:
+
+```php
+        $html .= ' <a class="cd-clear-filters" href="' . esc_url($this->urls->clearFilters($registry)) . '">'
+            . esc_html__('Clear filters', 'course-discovery') . '</a>';
+```
+
+The link still renders from `renderFilters()` after this task — Task 5 is what relocates it into the chips block. This task changes only where its URL comes from, so no test changes behaviour.
 
 - [ ] **Step 3: Update the two construction sites**
 
@@ -938,7 +955,7 @@ Expected: exactly the two sites above, both already passing `SearchUrls`. Fix an
 ddev composer test && ddev composer stan
 ```
 
-Expected: no `FAILURES!` / `ERRORS!`, `No errors`. `ShortcodeTest::test_clear_filters_link_has_no_known_filter_params` **will fail** here if the clear link no longer renders — that is expected and Task 5 restores it. If it fails, skip it for this one commit with a note, or reorder Step 5 to run after Task 5. Prefer: temporarily mark it with `self::markTestSkipped('Clear all moves into the chips block in the next commit.');` as the first line, and remove that line in Task 5 Step 6.
+Expected: no `FAILURES!` / `ERRORS!`, `No errors`. This task is a pure refactor — every test that passed before it must still pass, including `ShortcodeTest::test_clear_filters_link_has_no_known_filter_params`. If any test changes behaviour, the delegation is wrong, not the test.
 
 - [ ] **Step 6: Commit**
 
@@ -1371,7 +1388,9 @@ ddev exec vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ActiveFilt
 
 Expected: all pass, no `FAILURES!` / `ERRORS!`.
 
-- [ ] **Step 5: Wire it into `Shortcode` and `Plugin`**
+- [ ] **Step 5: Wire it into `Shortcode` and `Plugin`, and relocate the clear link**
+
+First, in `FormRenderer::renderFilters()`, **delete** the `.cd-clear-filters` anchor and the comment above it — `ActiveFiltersRenderer::render()` now emits it, next to the chips it clears. The `.cd-search-actions` div keeps only the Apply button.
 
 In `Shortcode.php`, add the constructor property:
 
@@ -1418,7 +1437,7 @@ In `Plugin.php`, add the fourth argument:
 
 - [ ] **Step 6: Restore the clear-filters test and add end-to-end chip coverage**
 
-Remove the `markTestSkipped` line added in Task 4 Step 5 from `ShortcodeTest::test_clear_filters_link_has_no_known_filter_params`, and append to `ShortcodeTest`:
+Append to `ShortcodeTest`:
 
 ```php
     public function test_an_applied_filter_renders_a_chip_and_a_filter_count(): void
@@ -1546,6 +1565,16 @@ This file is **tab-indented** — match it.
 		--cd-bg: var(--wp--preset--color--base, #111111);
 		--cd-surface: var(--wp--preset--color--accent-5, #1c1c1c);
 		--cd-accent: var(--wp--preset--color--accent-3, #b9a7ff);
+
+		/*
+		 * Invariant: any colour token paired against a token redeclared in
+		 * this block must itself be redeclared here, or the pairing breaks in
+		 * one scheme. --cd-highlight backs .cd-chip's background with
+		 * --cd-text as its foreground; leaving it at the light yellow while
+		 * --cd-text flipped to #f2f2f2 gave 1.07:1 -- invisible. This dark
+		 * fallback restores 8.8:1.
+		 */
+		--cd-highlight: var(--wp--preset--color--accent-1, #4a4420);
 	}
 }
 
@@ -2068,7 +2097,11 @@ git add plugins/course-discovery/assets/course-discovery.css && git commit -m "s
 
 **Files:**
 - Modify: `plugins/course-discovery/assets/course-discovery.js`
+- Create: `e2e/tests/enhancement.spec.ts`
+- Modify: `e2e/playwright.config.ts` (register the new spec in the `js-enabled` project)
 - Modify: `e2e/tests/no-js.spec.ts`, `e2e/tests/pagination.spec.ts`, `e2e/tests/keyboard.spec.ts`
+
+**Why a new spec file:** `playwright.config.ts` assigns specs to projects by explicit `testMatch` lists — `keyboard.spec.ts` runs with JavaScript **enabled**, `no-js.spec.ts` and `pagination.spec.ts` with it **disabled**. The two behaviours added here (sort auto-submit, small-screen collapse) both need JavaScript on but are not keyboard concerns, so they get their own `enhancement.spec.ts` rather than being wedged into the keyboard spec. Registering it is mandatory: an unregistered spec file matches no project and **silently never runs**.
 
 **Interfaces:**
 - Consumes: `.cd-filters` from Task 2, `[data-cd-sort]` from Task 3, `.cd-chip` from Task 5.
@@ -2164,11 +2197,54 @@ async function tabTo(page: Page, targetId: string, maxTabs = 50): Promise<void> 
 
 The redesign adds focusable stops ahead of the location combobox — the hero Search button and the `<details>` summary — so the old budget is now uncomfortably tight rather than wrong.
 
-- [ ] **Step 5: Add the collapse test**
+- [ ] **Step 5: Create the JavaScript-enabled enhancement spec**
 
-Append to `e2e/tests/keyboard.spec.ts`, as a new top-level describe:
+Create `e2e/tests/enhancement.spec.ts` (tab-indented, matching the other specs):
 
 ```ts
+import { test, expect } from '@playwright/test';
+
+/**
+ * The two behaviours course-discovery.js adds beyond the combobox upgrade:
+ * submitting on sort change, and collapsing the filter panel on a narrow
+ * viewport. Both need JavaScript ON, so this spec belongs to the
+ * 'js-enabled' project -- see playwright.config.ts. Neither is reachable
+ * from PHPUnit, which is why they live here.
+ */
+
+test.describe('sort auto-submits when JavaScript is on', () => {
+	test('changing sort reloads with the new order applied', async ({ page }) => {
+		await page.goto('/find-courses/');
+
+		const sort = page.locator('#cd-sort');
+		await expect(sort).toHaveValue('soonest');
+
+		// No Search click: the change event alone must submit the form.
+		await Promise.all([
+			page.waitForURL((url) => url.searchParams.get('sort') === 'price_asc'),
+			sort.selectOption('price_asc'),
+		]);
+
+		await expect(page.locator('#cd-sort')).toHaveValue('price_asc');
+	});
+
+	test('toggling a combobox option does not submit the form', async ({ page }) => {
+		await page.goto('/find-courses/');
+
+		const urlBefore = page.url();
+		const trigger = page.locator('#cd-filter-location');
+
+		await trigger.click();
+		await page.locator('#cd-filter-location-listbox [role="option"]').first().click();
+
+		// The decisive assertion: the combobox dispatches a bubbling 'change'
+		// on each toggle, so a form-level listener would have navigated here.
+		// Scoping the sort listener to the select itself is what prevents it.
+		expect(page.url()).toBe(urlBefore);
+		await expect(page.locator('#cd-filter-location-listbox')).toBeVisible();
+	});
+});
+
 test.describe('filter panel on a narrow viewport', () => {
 	test('collapses so results are on screen first', async ({ page }) => {
 		await page.setViewportSize({ width: 480, height: 900 });
@@ -2185,6 +2261,16 @@ test.describe('filter panel on a narrow viewport', () => {
 	});
 });
 ```
+
+Then register it in `e2e/playwright.config.ts` — change the `js-enabled` project's `testMatch` to:
+
+```ts
+			testMatch: ['keyboard.spec.ts', 'enhancement.spec.ts'],
+```
+
+Without this the file matches no project and never runs, while still reporting green.
+
+The first test closes a real verification gap: Task 3 implemented the sort auto-submit but had no browser available to confirm the `change` listener fires. The second pins the scoping decision behind it — a form-level listener would reload the page mid-multi-select.
 
 - [ ] **Step 6: Run the e2e suite**
 
