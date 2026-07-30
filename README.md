@@ -39,31 +39,95 @@ hooks, with signatures and security contracts.
 ## 2. Setup
 
 Everything runs through [DDEV](https://ddev.com) — WP-CLI, Xdebug and a
-MariaDB shell come with it.
+MariaDB shell come with it. Docker and DDEV are all the host needs — Node.js
+only for the Playwright suite (§3).
+
+**This repository contains no WordPress.** `wp/` is the docroot and is
+gitignored wholesale, so a fresh clone holds the two plugins, the tests and
+nothing else — core, the database, ACF, the demo content and the
+`/find-courses/` page are all created by the block below. Run it top to
+bottom:
 
 ```bash
+git clone https://github.com/semirm-dev/edtech.git
+cd edtech
+
+# Must exist BEFORE the first `ddev start` — see "Why the mkdir comes first".
+mkdir -p wp/wp-content/plugins
+
 ddev start
-ddev composer install
-./bin/seed.sh
+ddev composer install      # before activating the plugin: it loads this autoloader
+
+ddev wp core download
+ddev wp core install --url=https://edtech.ddev.site --title="Course Discovery" \
+    --admin_user=admin --admin_password=admin --admin_email=admin@example.com --skip-email
+
+ddev wp plugin install advanced-custom-fields --version=6.8.6 --activate
+ddev wp plugin activate course-discovery
+ddev wp rewrite structure '/%postname%/'   # /find-courses/ 404s on plain permalinks
+
+./bin/seed.sh              # 20 courses, 4 providers, 3 locations, then a reindex
 ddev wp post create --post_type=page --post_title="Find Courses" \
     --post_name=find-courses --post_content='[course_discovery]' --post_status=publish
+
 ddev launch /find-courses/
 ```
 
-A fresh DDEV database has no demo content and no `/find-courses/` page, so
-both the seed and the `wp post create` line are required. `ddev composer
-install` is only needed once, or after a `composer.lock` change.
+The finder is then at `https://edtech.ddev.site/find-courses/`, with wp-admin
+at `https://edtech.ddev.site/wp-admin/` (`admin` / `admin` — local only; the
+deployment path in §9 refuses default credentials outright). The example
+extension stays inactive until you activate it — that demo is in §1.
+
+Re-running is safe except for `./bin/seed.sh`, which deletes existing
+courses, instructors and providers before recreating fixtures (§4).
+`ddev composer install` is only needed once, or after a `composer.lock`
+change.
+
+### Why the `mkdir` comes first
+
+`.ddev/docker-compose.plugins.yaml` bind-mounts the two `plugins/`
+directories into `wp/wp-content/plugins/`. When that path doesn't exist as the
+containers start, Docker creates it — owned by `root`. WP-CLI runs as your own
+user, so from that point nothing can write into `wp-content`, and the failure
+is quiet rather than loud:
+
+- `ddev wp core download` still reports `Success: WordPress downloaded.` but
+  silently skips `wp-content/themes`;
+- `ddev wp plugin install` fails with
+  `Warning: Could not create directory "…/wp-content/upgrade"`;
+- every page returns HTTP 200 carrying only a stack of
+  `wp_is_block_theme was called incorrectly` notices — no theme, no HTML.
+
+Creating `wp/wp-content/plugins` first means Docker only creates the two mount
+points inside it and the tree stays yours.
+
+Already in that state? Repair it in place — no re-clone needed:
+
+```bash
+ddev exec 'sudo chown -R $(id -u):$(id -g) /var/www/html/wp/wp-content'
+ddev wp core download --force
+```
+
+Then carry on from `ddev wp core install` above.
+
+WP-CLI's `Error: This does not seem to be a WordPress installation.` — which
+`./bin/seed.sh` surfaces as
+`Failed to run wp post list --post_type=cd_course` — means the same thing from
+the other side: `wp/` holds no core yet, the state every clone starts in. Run
+`ddev wp core download` and `ddev wp core install`.
 
 ## 3. Environment requirements
 
 | Requirement | Notes |
 |---|---|
+| Docker | The only hard host dependency besides DDEV. |
+| DDEV | Verified on 1.25.2. Provides PHP, MariaDB, Composer and WP-CLI, so none of those are needed on the host. |
 | PHP 8.4 | What DDEV runs (`.ddev/config.yaml`); the plugin itself requires ≥ 8.3. |
 | MariaDB 10.11 | Managed by DDEV. The lookup tables' `FULLTEXT` index relies on it. |
 | Composer 2 | Always `ddev composer …` — a host `php` binary exists but is the wrong version and has no database access. |
+| WordPress | Not vendored: `ddev wp core download` (§2) fetches the current release. Verified on 7.0.2; the integration suite runs against wp-phpunit ^7.0. |
 | Node.js 18+ | Playwright E2E only (`e2e/`, a standalone Node project). |
-| Docker | Required by DDEV. |
-| ACF free edition | Pinned at 6.8.6: `ddev wp plugin install advanced-custom-fields --activate`. PRO is licence-gated and can't be redistributed with this repository, so repeating start dates use a hand-built meta box instead of PRO's Repeater field. |
+| ACF free edition | Pinned at 6.8.6 by the install command in §2. PRO is licence-gated and can't be redistributed with this repository, so repeating start dates use a hand-built meta box instead of PRO's Repeater field. |
 
 ## 4. Database setup
 
@@ -118,15 +182,20 @@ a fixture the tests depend on is missing.
 Full write-up — high-risk areas, regression strategy, the shared filter
 contract test case — in [`docs/testing-strategy.md`](docs/testing-strategy.md).
 
-| Layer | Command | Requires | Result (2026-07-29) |
+| Layer | Command | Requires | Result (2026-07-30) |
 |---|---|---|---|
-| Unit | `ddev composer test:unit` | Nothing | **136 tests, 260 assertions** |
-| Integration | `ddev composer test:integration` | WordPress + MariaDB (wp-phpunit) | **268 tests, 527 assertions** |
-| Architecture | `ddev composer test:arch` | Nothing | **59 tests, 59 assertions** |
-| Static analysis | `ddev composer stan` | Nothing | **No errors**, PHPStan level 9 |
+| Unit | `ddev composer test:unit` | `ddev composer install` | **136 tests, 260 assertions** |
+| Integration | `ddev composer test:integration` | core in `wp/` (wp-phpunit loads it as `ABSPATH`) + MariaDB | **300 tests, 645 assertions** |
+| Architecture | `ddev composer test:arch` | `ddev composer install` | **59 tests, 59 assertions** |
+| Static analysis | `ddev composer stan` | `ddev composer install` | **No errors**, PHPStan level 9 |
 | E2E (Playwright) | `cd e2e && CD_E2E_URL=https://edtech.ddev.site npx playwright test` | Node 18+, a running seeded site | **3 specs** |
 
-Total across the PHPUnit layers: **463 tests, 846 assertions**, all green.
+The integration suite needs no database setup of its own: `test:integration`
+creates the `wordpress_test` database if missing, and the bootstrap runs the
+plugin's migrations before the first test, so a fresh clone's *first* run is
+green rather than green-on-the-second-try.
+
+Total across the PHPUnit layers: **495 tests, 964 assertions**, all green.
 The integration and architecture suites end with `OK, but there were issues!`
 — PHPUnit deprecation noise from Yoast Polyfills' doc-comment annotations,
 not a failure.

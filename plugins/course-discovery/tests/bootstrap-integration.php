@@ -36,3 +36,34 @@ tests_add_filter('muplugins_loaded', static function (): void {
 });
 
 require $wpTests . '/includes/bootstrap.php';
+
+/*
+ * Create the index tables once, before the first test runs.
+ *
+ * In production MigrationRunner runs on activation and on every admin_init;
+ * neither fires under wp-phpunit. So on a *fresh* wordpress_test database the
+ * lookup tables do not exist until some test class creates them through
+ * UsesIndexTables::prepareIndexTables() -- and any test that merely saves a
+ * course before that point (IndexInvalidator listens on wp_after_insert_post)
+ * makes wpdb print "Table ... doesn't exist", which failOnWarning turns into a
+ * failed run.
+ *
+ * Worse, it fails only once: the tables that first run does create survive it
+ * (DDL commits, and nothing drops them between runs), so run two passes and
+ * the failure reads as flakiness rather than as a missing setup step. That is
+ * what a fresh clone hits.
+ *
+ * Doing it here is safe in a way the per-test path is not: at bootstrap no
+ * test has called start_transaction() yet, so wp-phpunit's CREATE TABLE ->
+ * CREATE TEMPORARY TABLE rewrite is not installed and the FULLTEXT index
+ * M001CreateLookupTables needs is legal. This adds no global `query` filter --
+ * the warning in UsesIndexTables against that still stands, and the trait is
+ * still what gives an individual test class real DDL and empty tables.
+ */
+(static function (): void {
+    global $wpdb;
+
+    $schema = new CourseDiscovery\Index\Schema($wpdb);
+
+    (new CourseDiscovery\Index\MigrationRunner($wpdb, $schema))->run();
+})();

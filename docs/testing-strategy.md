@@ -1,17 +1,26 @@
 # Course Discovery — testing strategy
 
-What is tested, where the risk is, how new filters are covered. Counts are verbatim command output, re-run 2026-07-29.
+What is tested, where the risk is, how new filters are covered. Counts are verbatim command output, re-run 2026-07-30.
 
 ## Layers
 
-| Layer | Command | Requires | Result (2026-07-29) |
+| Layer | Command | Requires | Result (2026-07-30) |
 |---|---|---|---|
 | Unit | `ddev composer test:unit` | Nothing | **136 tests, 260 assertions** |
-| Integration | `ddev composer test:integration` | WordPress + MariaDB (wp-phpunit) | **268 tests, 527 assertions** (28 deprecations) |
+| Integration | `ddev composer test:integration` | WordPress core in `wp/` + MariaDB (wp-phpunit) | **300 tests, 645 assertions** (29 deprecations) |
 | Architecture | `ddev composer test:arch` | Nothing | **59 tests, 59 assertions** (2 deprecations) |
 
 Those deprecations are Yoast PHPUnit Polyfills' doc-comment metadata, not this
-project's code. Total **463 tests, 846 assertions**; `ddev composer stan` (PHPStan level 9) reports **No errors**.
+project's code. Total **495 tests, 964 assertions**; `ddev composer stan` (PHPStan level 9) reports **No errors**.
+
+Both counts above are from a *first* run against a freshly created
+`wordpress_test` database. `bootstrap-integration.php` runs the plugin's
+migrations before the first test for that reason: nothing else creates the
+lookup tables under wp-phpunit (activation and `admin_init` never fire), and
+without them any test that saves a course trips `failOnWarning` via wpdb's
+"Table … doesn't exist". Because the tables the failing run creates outlive it,
+the second run passes — so the symptom presents as flakiness rather than as
+missing setup.
 
 - **Unit** (`tests/Unit/`) — domain only: value objects, `SearchCriteria` URL
   serialisation, filter value objects, the DI container, `Constraint` types.
